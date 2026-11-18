@@ -18,8 +18,9 @@ local _, ns = ...
 
 local L = LibStub("AceLocale-3.0"):NewLocale("CleanTooltips", "enUS", true)
 
--- Shortened Use and Equip lines (Condense.lua, design document 3.4). Each %s is a number copied from the game's line,
--- in the order the game's line has them. The game's own "Use:" or "Equip:" goes in front.
+-- Shortened Use and Equip lines (Condense.lua). Each %s is a number copied from the game's line,
+-- in the order the game's line has them. The game's own "Use:" or "Equip:" goes in front. Durations copied from the
+-- game's line read "30s" for seconds (the addon turns "30 sec" into "30s"); minutes and hours stay as written.
 L["SHORT_FOOD"] = "Heal +%s over %ss"
 L["SHORT_DRINK"] = "Mana +%s over %ss"
 L["SHORT_FOOD_DRINK"] = "Heal +%s, Mana +%s over %ss"
@@ -39,13 +40,15 @@ L["SHORT_ATTACK_SPEED_FOR"] = "+%s%% Attack Speed for %s"
 L["SHORT_LURE"] = "Lure: +%s Fishing for %s"
 -- A recipe or pattern: what it teaches, as the game wrote it ("Crocolisk Gumbo").
 L["SHORT_RECIPE"] = "Learn %s"
+-- An enchanting formula: the item with its article ("a two-handed weapon"), then what it gains ("+5 Spirit").
+L["SHORT_FORMULA"] = "Learn to enchant %s with %s"
 -- Cure kits: what's cured, as the game wrote it ("poisons"), and up to which level.
 L["SHORT_CURE"] = "Cure %s up to level %s"
 -- Armour kits: the slots as the game wrote them, the stat's value and name, the armour, then the item level.
 L["SHORT_ENCHANT"] = "Enchant %s: +%s %s, +%s Armor"
 L["SHORT_ENCHANT_LEVEL"] = "Enchant %s: +%s %s, +%s Armor (ilvl %s+)"
--- A spell power trinket: amount, then the duration as the game wrote it ("30 sec").
-L["SHORT_SPELL_POWER_FOR"] = "+%s Spell Power for %s"
+-- A trinket raising spell damage and healing by the same amount: spell damage, healing, then the duration ("30 sec").
+L["SHORT_DAMAGE_HEALING_FOR"] = "+%s Spell Damage, +%s Healing for %s"
 -- Poisons: minutes, charges, chance, then the effect.
 L["SHORT_POISON_DAMAGE"] = "Poison %s min, %s charges: %s%% chance of %s to %s %s damage"
 L["SHORT_POISON_SLOW"] = "Poison %s min: %s%% chance to slow %s%% for %ss"
@@ -58,9 +61,10 @@ L["SHORT_RANGED_ATTACK_POWER"] = "+%s Ranged Attack Power"
 L["SHORT_ATTACK_POWER_AGAINST"] = "+%s Attack Power vs %s"
 -- Druid forms only.
 L["SHORT_FERAL_ATTACK_POWER"] = "+%s Feral Attack Power"
-L["SHORT_SPELL_POWER"] = "+%s Spell Power"
 L["SHORT_HEALING"] = "+%s Healing"
 L["SHORT_HEALING_DAMAGE"] = "+%s Healing, +%s Spell Damage"
+-- Spell damage and healing by one amount, damage first as the game writes it ("damage and healing ... by up to 5").
+L["SHORT_DAMAGE_HEALING"] = "+%s Spell Damage, +%s Healing"
 L["SHORT_SPELL_DAMAGE"] = "+%s Spell Damage"
 -- The second %s is the school, as the game wrote it (Fire, Shadow).
 L["SHORT_SCHOOL_DAMAGE"] = "+%s %s Damage"
@@ -90,6 +94,24 @@ L["SHORT_BLOCK_VALUE"] = "+%s Block Value"
 L["SHORT_THREAT"] = "+%s%% Threat"
 L["SHORT_THREAT_DOWN"] = "-%s%% Threat"
 L["SHORT_RANGED_ATTACK_SPEED"] = "+%s%% Ranged Attack Speed"
+L["SHORT_MOUNT_SPEED"] = "+%s%% Mount Speed"
+-- The second %s is the effect, as the game wrote it (Fear, Sleep, Disorient).
+L["SHORT_EFFECT_RESIST"] = "+%s%% %s Resist"
+-- Damage dealt to whoever hits you. The second %s is the school, as the game wrote it (Arcane, Physical).
+L["SHORT_THORNS"] = "%s %s damage to attackers when struck"
+-- Less mana for some spells: the amount, then the spells as the game wrote them ("Flame Shock and Lightning Bolt").
+L["SHORT_MANA_COST"] = "-%s Mana Cost for %s"
+L["SHORT_REVIVE_CAST_TIME"] = "-%s%% Resurrection Cast Time"
+-- A stat only some of the time: amount, stat, then when, as the game wrote it ("affected by a Bleed").
+L["SHORT_STAT_WHILE"] = "+%s %s while %s"
+-- Extra damage dealt on hits against one kind of creature (an effect, not a stat): amount, school, then the creature
+-- type as the game wrote it (Swine).
+L["SHORT_DAMAGE_AGAINST"] = "%s %s damage on hits vs %s"
+-- Damage dealt to the attacker each time you block (an effect, not a stat): the range, then the school.
+L["SHORT_BLOCK_DAMAGE"] = "%s to %s %s damage to attackers on block"
+-- Use lines with a duration, written as the game wrote it ("15 sec").
+L["SHORT_ALL_STATS_FOR"] = "+%s All Stats for %s"
+L["SHORT_SPELL_HIT_FOR"] = "+%s%% Spell Hit for %s"
 -- "Chance on hit:" lines. The second %s is the school, as the game wrote it (Fire, Nature).
 L["SHORT_PROC_DAMAGE"] = "%s %s damage"
 L["SHORT_PROC_DOT"] = "%s %s damage, +%s over %ss"
@@ -112,40 +134,35 @@ L["SHORT_SKILL"] = "+%s %s"
 -- A stat line the game already writes short ("+5 Agility."), without its full stop. The second %s is the stat.
 L["SHORT_STAT"] = "+%s %s"
 
--- Options page: Clean-up (Options.lua, design document 3.1 to 3.4)
+-- Options page: Clean-up (Options.lua)
 L["OPT_SELL_PRICE"] = "Hide sell price"
 L["OPT_SELL_PRICE_TIP"] = "Vendors still show it."
 L["OPT_DURABILITY"] = "Hide durability on undamaged items"
-L["OPT_DURABILITY_TIP"] = "Shown again once the item is damaged."
 L["OPT_LEVEL"] = "Hide level requirements you meet"
-L["OPT_LEVEL_TIP"] = "Shown, in red, while you're below the level."
+L["OPT_MET_REQUIREMENTS"] = "Hide other requirements you meet"
+L["OPT_SOULBOUND"] = "Hide Soulbound"
+L["OPT_UNIQUE"] = "Hide Unique on items you own"
+L["OPT_FACTION"] = "Hide faction on unit tooltips"
+L["OPT_PVP"] = "Hide PvP on unit tooltips"
 L["OPT_SHORTEN_USE"] = "Shorten Use lines"
-L["OPT_SHORTEN_USE_TIP"] = "Common lines only, such as food, drink, potions and bandages. Anything else stays as the game writes it."
 L["OPT_SHORTEN_EQUIP"] = "Shorten Equip lines"
-L["OPT_SHORTEN_EQUIP_TIP"] = "Common stat bonuses only, such as hit, crit and attack power, also in set bonuses and chance on hit lines. Anything else stays as the game writes it."
 L["OPT_HIDE_SECOND_COOLDOWN"] = "Hide 1 second cooldowns"
-L["OPT_HIDE_SECOND_COOLDOWN_TIP"] = "Armour kits and some food show \"(1 Sec Cooldown)\", which only stops them being used twice at once."
 L["OPT_DROP_EQUIP_PREFIX"] = "Leave out \"Equip:\""
-L["OPT_DROP_EQUIP_PREFIX_TIP"] = "Shortened Equip lines read like the item's other stats, such as \"+3 Stamina\". They stay green."
 L["OPT_SHORTEN_DPS"] = "Shorten damage per second"
-L["OPT_SHORTEN_DPS_TIP"] = "A weapon's \"(6.7 damage per second)\" reads \"(6.7 dps)\"."
 L["OPT_SAMPLE"] = "Sample item"
 -- %d the item's ID, while the game hasn't loaded its name.
 L["SAMPLE_ITEM"] = "Item %d"
 -- Above the preview tooltip as the game draws it, beside Clean Tooltips' own.
 L["PREVIEW_GAME"] = "Game"
 
--- Options page: Look (design document 3.5 to 3.9)
+-- Options page: Look
 L["PAGE_LOOK"] = "Look"
 L["OPT_CLASS_NAMES"] = "Class colours for player names"
 L["OPT_HOSTILE_RED"] = "Keep red names for hostile players"
-L["OPT_HOSTILE_RED_TIP"] = "Players who can attack you keep the game's red."
-L["OPT_CLASS_NAMES_TIP"] = "NPC and item names are already coloured by the game."
 L["OPT_BORDERS"] = "Border colour"
 L["OPT_BORDER_CLASS"] = "Players by class"
 L["OPT_BORDER_REACTION"] = "NPCs by reaction"
 L["OPT_BORDER_QUALITY"] = "Items by quality"
-L["OPT_BORDER_QUALITY_TIP"] = "Uncommon and better."
 L["OPT_HEALTH_BAR"] = "Health bar texture"
 L["OPT_FONT"] = "Font"
 -- The first choice in the texture and font lists.
@@ -154,32 +171,30 @@ L["OPT_BACKGROUND"] = "Background"
 L["OPT_BACKGROUND_TIP"] = "Colour and transparency."
 L["OPT_BACKGROUND_RESET"] = "Game's own"
 -- The Look page's sample name lines, for what can't be previewed with a real unit.
-L["SAMPLE_HOSTILE_PLAYER"] = "Hostile player (sample)"
-L["SAMPLE_HOSTILE_NPC"] = "Hostile NPC (sample)"
+L["SAMPLE_HOSTILE_PLAYER"] = "Hostile player"
+L["SAMPLE_HOSTILE_NPC"] = "Hostile NPC"
 
--- Options page: Sources (design document 4.2, 4.3)
+-- Options page: Sources
 L["PAGE_SOURCES"] = "Sources"
 L["OPT_SHOW_SOURCES"] = "Show line sources beside tooltips"
-L["OPT_SHOW_SOURCES_TIP"] = "Names the addon beside each line it added. Also {/ctt sources}, or a key in Key Bindings > AddOns."
+L["OPT_SHOW_SOURCES_TIP"] = "Names the addon beside each line it added."
 L["OPT_SOURCES_LIST"] = "Show"
 L["SOURCES_MODE_ADDONS"] = "All addons"
 L["SOURCES_MODE_LAST"] = "Current tooltip"
-L["SOURCES_HIDE_ADDON"] = "Hide every line it adds"
+L["SOURCES_HIDE_ADDON"] = "Hide everything"
 -- At the top of the Sources page.
-L["SOURCES_ADVICE"] = "It's better to turn a tooltip line off in the addon that adds it. Use this page for lines that addon has no setting for. Only lines an addon adds to many items or units are listed, not one-off ones such as quest objectives."
-L["SOURCES_EMPTY"] = "No addon has added a tooltip line yet this session. Hover over a few things, then come back."
-L["SOURCES_LAST_EMPTY"] = "No item or unit tooltip has been shown yet this session. Hover over something, then come back."
+L["SOURCES_ADVICE"] = "It's better to turn a tooltip line off in the addon that adds it. Use this for lines that addon has no setting for."
+L["SOURCES_EMPTY"] = "No addon has added a tooltip line yet this session."
+L["SOURCES_LAST_EMPTY"] = "No tooltip has been shown yet this session."
+L["SOURCES_LAST_NONE"] = "No addon added a line to this tooltip."
 -- A line whose text the game hid (unit tooltips in combat).
 L["SOURCES_UNREADABLE"] = "(text hidden by the game)"
 -- The sources column. %s the addon that changed the line's text.
-L["SOURCES_EDITED"] = "edited by %s"
+L["SOURCES_EDITED"] = "%s edited"
 -- A removed line, listed under the tooltip: %s the addon, %s the line.
 L["SOURCES_REMOVED"] = "%s: %s"
 L["BINDING_SOURCES"] = "Show tooltip line sources"
 
--- Known lines: other addons' lines with no setting of their own (Remove.lua, design document 4.5)
-L["KNOWN_NPCABILITIES_HINT"] = "(Press <key> for details)"
-L["KNOWN_NPCABILITIES_HINT_TIP"] = "NPC Abilities has no setting for this line."
 
 -- Options page: Profiles
 L["PAGE_PROFILES"] = "Profiles"
@@ -194,15 +209,15 @@ L["PROFILE_CHOOSE"] = "Choose a profile"
 L["PROFILE_DELETE"] = "Delete"
 L["PROFILE_DELETE_CONFIRM"] = "Delete the profile %s?"
 L["PROFILE_RESET"] = "Reset Profile"
-L["PROFILE_RESET_CONFIRM"] = "Reset the profile %s to the default settings? This also clears its hidden lines."
+L["PROFILE_RESET_CONFIRM"] = "Reset the profile %s to the default settings?"
 L["PROFILE_EXISTS"] = "There's already a profile called %s."
 -- Refusals, only if Blizzard's own ERR_NOT_IN_COMBAT is missing.
 L["OPT_IN_COMBAT"] = "You can't do that in combat."
 
--- /ctt help (Commands.lua, design document 5)
+-- /ctt help (Commands.lua)
 L["HELP_OPTIONS"] = "{/ctt} - options"
-L["HELP_SOURCES"] = "{/ctt sources} - show or hide line sources beside tooltips"
-L["HELP_LAST"] = "{/ctt last} - the current tooltip's lines, to hide any"
+L["HELP_SOURCES"] = "{/ctt sources} - toggle line sources beside tooltips"
+L["HELP_LAST"] = "{/ctt last} - the current tooltip's lines"
 L["HELP_HELP"] = "{/ctt help} - this list"
 
 ns.L = LibStub("AceLocale-3.0"):GetLocale("CleanTooltips")

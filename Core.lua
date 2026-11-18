@@ -249,7 +249,6 @@ ns.PROFILE_DEFAULTS = {
 	hideAddon = {},     -- [addon folder] = true: every line it adds
 	hideLine = {},      -- [addon folder] = { [line shape] = { types, sites } } (Sources.Shape: numbers as "#"; Remove.lua)
 	hideWritten = {},   -- [addon folder] = { [call site] = { prefix, label, types } }: lines added blank, then written
-	known = {},         -- [known line id] = true (Remove.lua)
 }
 
 function ns.ProfileChanged()

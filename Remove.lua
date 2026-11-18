@@ -1,5 +1,4 @@
 local _, ns = ...
-local L = ns.L
 
 -- Removing other addons' lines. Always the player's choice: every rule is off until they pick
 -- it on the Sources page. Three kinds, kept in the profile:
@@ -10,8 +9,6 @@ local L = ns.L
 --                              can be secret in combat, and then the line goes by its call site (learned when the
 --                              rule hides it out of combat), unless that site has added other lines too this session
 --                              (Sources.SiteOnlyAdds).
---   known[id]                  a ready-made rule for a line that has no setting in its own addon (KNOWN below),
---                              on the types its entry names
 --   hideWritten[folder][site]  a line the addon adds blank and then writes into (Leatrix Plus's "Target: <name>"):
 --                              its text changes (and is secret in combat), so the rule goes by where the addon adds
 --                              it (the call site, "Leatrix_Plus.lua:16692", Sources.Parse) and hides it as it's
@@ -29,51 +26,12 @@ local L = ns.L
 --   ns.Remove.SetWritten(folder, site, text, on, types), IsWrittenHidden(folder, site),
 --   MatchWritten(folder, text, site), WrittenRules(folder), HiddenBySite(folder, site, lines)
 --   ns.Remove.Hide(tooltip, record, index), ns.Remove.Restore(tooltip, record)
---   ns.Remove.SetAddon(folder, on), SetLine(folder, text, on, types), SetKnown(id, on), and their getters
---   ns.Remove.Known(folder)   the known lines of an addon; ns.Remove.KnownAddons()
+--   ns.Remove.SetAddon(folder, on), SetLine(folder, text, on, types), and their getters
 
 ns.Remove = {}
 local Remove = ns.Remove
 
--- Known lines: other addons' lines with no setting of their own. Patterns are per locale; a missing locale just
--- means no ready-made rule. label: what the Sources page calls the line; hint: where it's turned off properly, or
--- that it can't be.
-local KNOWN = {
-	{
-		id = "NpcAbilities_hint",
-		addon = "NpcAbilities",
-		label = L.KNOWN_NPCABILITIES_HINT,
-		hint = L.KNOWN_NPCABILITIES_HINT_TIP,
-		types = { Unit = true }, -- its hint is on NPC tooltips only
-		patterns = {
-			enUS = { "^%(Press .+ for details%)$", "^%(Hotkey not bound%)$" },
-		},
-	},
-}
-
-local locale = GetLocale()
-local knownByAddon = {}
-for _, entry in ipairs(KNOWN) do
-	entry.match = entry.patterns[locale] or (locale == "enGB" and entry.patterns.enUS) or nil
-	knownByAddon[entry.addon] = knownByAddon[entry.addon] or {}
-	table.insert(knownByAddon[entry.addon], entry)
-end
-
-function Remove.Known(folder)
-	return knownByAddon[folder]
-end
-
-function Remove.KnownAddons()
-	return knownByAddon
-end
-
 -- Deciding ----------------------------------------------------------------------------------------------------------
-
--- A known line whose rule is on (Remove.IsKnownLine, below, finds which known line it is).
-local function MatchesKnown(folder, text, profile)
-	local entry = Remove.IsKnownLine(folder, text)
-	return entry ~= nil and profile.known[entry.id] == true
-end
 
 -- text: the line's text, or nil when it's secret (then only "every line from this addon" can apply). Line rules go by
 -- the line's shape (Sources.Shape: numbers as "#"), so one rule covers a line whose numbers change, on any tooltip
@@ -105,7 +63,7 @@ function Remove.ShouldHide(folder, text, typeName, site)
 		end
 		return true, rule
 	end
-	return MatchesKnown(folder, text, profile)
+	return false
 end
 
 -- Whether a line rule of `folder` has learned `site`, and the site is trusted: it added only that rule's line this
@@ -133,12 +91,6 @@ function Remove.RuleTypes()
 			local ruleTypes = type(rule) == "table" and rule.types
 			if not (ruleTypes and next(ruleTypes)) then return true, types end
 			for name in pairs(ruleTypes) do types[name] = true end
-		end
-	end
-	for _, entry in ipairs(KNOWN) do
-		if profile.known[entry.id] then
-			if not entry.types then return true, types end
-			for name in pairs(entry.types) do types[name] = true end
 		end
 	end
 	for _, rules in pairs(profile.hideWritten) do
@@ -241,29 +193,6 @@ function Remove.SetLine(folder, text, on, types)
 		if not next(lines[folder]) then lines[folder] = nil end
 	end
 	Changed()
-end
-
-function Remove.IsKnownOn(id)
-	return ns.profile and ns.profile.known[id] == true
-end
-
-function Remove.SetKnown(id, on)
-	ns.profile.known[id] = on or nil
-	Changed()
-end
-
--- Whether a line would be removed by the known rule (on or off), for the Sources page to show it under that rule
--- rather than as a line of its own.
-function Remove.IsKnownLine(folder, text)
-	local entries = knownByAddon[folder]
-	if not entries or not text then return nil end
-	local plain = ns.PlainText(text)
-	for _, entry in ipairs(entries) do
-		for _, pattern in ipairs(entry.match or {}) do
-			if plain and plain:find(pattern) then return entry end
-		end
-	end
-	return nil
 end
 
 -- Lines an addon adds blank and then writes into (hideWritten, above) -------------------------------------------------

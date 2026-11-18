@@ -13,7 +13,7 @@ local Style = ns.Style
 local LSM = LibStub("LibSharedMedia-3.0", true)
 local LineType = Enum.TooltipDataLineType
 local TooltipType = Enum.TooltipDataType
-local UNCOMMON = Enum.ItemQuality and Enum.ItemQuality.Uncommon or 2
+local COMMON = Enum.ItemQuality and Enum.ItemQuality.Common or 1
 
 local unitOf = setmetatable({}, { __mode = "k" })  -- [tooltip] = the unit on its name line
 local border = setmetatable({}, { __mode = "k" })  -- [tooltip] = the border colour CT wants, while it wants one
@@ -50,8 +50,8 @@ local function QualityColor(data)
 	local item = ns.Readable(data.hyperlink) or ns.Readable(data.id)
 	if item == nil then return nil end
 	local quality = C_Item.GetItemQualityByID(item)
-	-- Poor and common items keep the plain border: colouring them adds nothing.
-	if type(quality) ~= "number" or quality < UNCOMMON then return nil end
+	-- Common items keep the plain border: a white one would say nothing. Junk is grey, like its name.
+	if type(quality) ~= "number" or quality == COMMON then return nil end
 	return ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
 end
 

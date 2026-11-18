@@ -48,20 +48,20 @@ local function BuildCleanup(canvas)
 		return check
 	end
 	Left("hideSellPrice", L.OPT_SELL_PRICE, L.OPT_SELL_PRICE_TIP)
-	Left("hideMetLevel", L.OPT_LEVEL, L.OPT_LEVEL_TIP)
-	Left("hideMetRequirements", L.OPT_MET_REQUIREMENTS, L.OPT_MET_REQUIREMENTS_TIP)
-	Left("hideSoulbound", L.OPT_SOULBOUND, L.OPT_SOULBOUND_TIP)
-	Left("hideUnique", L.OPT_UNIQUE, L.OPT_UNIQUE_TIP)
-	Left("hideDurability", L.OPT_DURABILITY, L.OPT_DURABILITY_TIP)
-	Left("shortenDps", L.OPT_SHORTEN_DPS, L.OPT_SHORTEN_DPS_TIP)
-	Right("shortenEquip", L.OPT_SHORTEN_EQUIP, L.OPT_SHORTEN_EQUIP_TIP)
-	local noPrefix = Right("dropEquipPrefix", L.OPT_DROP_EQUIP_PREFIX, L.OPT_DROP_EQUIP_PREFIX_TIP, true)
+	Left("hideMetLevel", L.OPT_LEVEL, nil)
+	Left("hideMetRequirements", L.OPT_MET_REQUIREMENTS, nil)
+	Left("hideSoulbound", L.OPT_SOULBOUND, nil)
+	Left("hideUnique", L.OPT_UNIQUE, nil)
+	Left("hideDurability", L.OPT_DURABILITY, nil)
+	Left("shortenDps", L.OPT_SHORTEN_DPS, nil)
+	Right("shortenEquip", L.OPT_SHORTEN_EQUIP, nil)
+	local noPrefix = Right("dropEquipPrefix", L.OPT_DROP_EQUIP_PREFIX, nil, true)
 	table.insert(page.refreshers, function() noPrefix:SetActive(ns.profile.shortenEquip == true) end)
-	Right("shortenUse", L.OPT_SHORTEN_USE, L.OPT_SHORTEN_USE_TIP)
-	local oneSecond = Right("hideSecondCooldown", L.OPT_HIDE_SECOND_COOLDOWN, L.OPT_HIDE_SECOND_COOLDOWN_TIP, true)
+	Right("shortenUse", L.OPT_SHORTEN_USE, nil)
+	local oneSecond = Right("hideSecondCooldown", L.OPT_HIDE_SECOND_COOLDOWN, nil, true)
 	table.insert(page.refreshers, function() oneSecond:SetActive(ns.profile.shortenUse == true) end)
-	Right("hideFaction", L.OPT_FACTION, L.OPT_FACTION_TIP)
-	Right("hidePvP", L.OPT_PVP, L.OPT_PVP_TIP)
+	Right("hideFaction", L.OPT_FACTION, nil)
+	Right("hidePvP", L.OPT_PVP, nil)
 	local y = math.min(left, right) - 12
 
 	local sample = 1
@@ -208,9 +208,9 @@ end
 local function BuildLook(canvas)
 	local page = NewPage(L.PAGE_LOOK, canvas)
 	local y = TOP
-	FieldCheck(page, "classNames", L.OPT_CLASS_NAMES, L.OPT_CLASS_NAMES_TIP, LEFT, y)
+	FieldCheck(page, "classNames", L.OPT_CLASS_NAMES, nil, LEFT, y)
 	y = y - ROW
-	local hostile = FieldCheck(page, "hostileRed", L.OPT_HOSTILE_RED, L.OPT_HOSTILE_RED_TIP, LEFT + INDENT, y)
+	local hostile = FieldCheck(page, "hostileRed", L.OPT_HOSTILE_RED, nil, LEFT + INDENT, y)
 	table.insert(page.refreshers, function() hostile:SetActive(ns.profile.classNames == true) end)
 	y = y - ROW - 10
 
@@ -221,7 +221,7 @@ local function BuildLook(canvas)
 	y = y - ROW
 	FieldCheck(page, "borderReaction", L.OPT_BORDER_REACTION, nil, LEFT, y)
 	y = y - ROW
-	FieldCheck(page, "borderQuality", L.OPT_BORDER_QUALITY, L.OPT_BORDER_QUALITY_TIP, LEFT, y)
+	FieldCheck(page, "borderQuality", L.OPT_BORDER_QUALITY, nil, LEFT, y)
 	y = y - ROW - 14
 
 	MediaDropdown(page, "healthBar", "statusbar", L.OPT_HEALTH_BAR, y)
@@ -287,14 +287,11 @@ local function SortedFolders()
 	for folder in pairs(ns.profile.hideAddon) do Add(folder) end
 	for folder in pairs(ns.profile.hideLine) do Add(folder) end
 	for folder in pairs(ns.profile.hideWritten) do Add(folder) end
-	for folder in pairs(ns.Remove.KnownAddons()) do
-		if C_AddOns.IsAddOnLoaded(folder) then Add(folder) end
-	end
 	table.sort(folders, function(a, b) return ns.Sources.Title(a):lower() < ns.Sources.Title(b):lower() end)
 	return folders
 end
 
--- Row specs: { kind = "header" | "check" | "line" | "note", text, note, checked, active, indent, click, toggle, tip }.
+-- Row specs: { kind = "header" | "check" | "line" | "note", text, checked, active, indent, click, toggle, tip }.
 -- A heading's `toggle` ({ checked, click }) is its addon's "Hide everything", inline after its name; hovering it shows
 -- the page's advice (it's better to turn a line off in its own addon). `tip` ({ title, text }) is shown when the row's
 -- tick box or text is hovered.
@@ -316,13 +313,6 @@ local function AddonRows()
 	for _, folder in ipairs(folders) do
 		local hideAll = ns.Remove.IsAddonHidden(folder)
 		rows[#rows + 1] = AddonHeader(folder)
-		for _, entry in ipairs(ns.Remove.Known(folder) or {}) do
-			if entry.match then
-				rows[#rows + 1] = { kind = "check", text = entry.label, note = entry.hint, indent = true,
-					checked = hideAll or ns.Remove.IsKnownOn(entry.id), active = not hideAll,
-					click = function(on) ns.Remove.SetKnown(entry.id, on) end }
-			end
-		end
 		-- Its lines: those it shows all the time (Sources.lua lists a line once it's on three different items or units),
 		-- then any hidden earlier that haven't shown up yet (rules are kept by shape, numbers as "#"). Never blank ones.
 		local lines, listed = {}, {}
@@ -334,12 +324,10 @@ local function AddonRows()
 			if not listed[shape] and not ns.Sources.IsBlank(shape) then lines[#lines + 1] = shape end
 		end
 		for _, text in ipairs(lines) do
-			if not ns.Remove.IsKnownLine(folder, text) then
-				-- With its icons, as the tooltip showed it; only its colours go.
-				rows[#rows + 1] = { kind = "check", text = ns.WithIcons(text) or "", indent = true,
-					checked = hideAll or ns.Remove.IsLineHidden(folder, text), active = not hideAll,
-					click = function(on) ns.Remove.SetLine(folder, text, on, LineTypes(folder, text)) end }
-			end
+			-- With its icons, as the tooltip showed it; only its colours go.
+			rows[#rows + 1] = { kind = "check", text = ns.WithIcons(text) or "", indent = true,
+				checked = hideAll or ns.Remove.IsLineHidden(folder, text), active = not hideAll,
+				click = function(on) ns.Remove.SetLine(folder, text, on, LineTypes(folder, text)) end }
 		end
 		-- Lines it adds blank and then writes into, hidden from the current tooltip (Remove.SetWritten), so they can be
 		-- shown again here. Unticking drops the rule, so the row goes when the page is drawn again.
@@ -391,18 +379,11 @@ local function LastRows()
 					rows[#rows + 1] = row
 				end
 			else
-				local known = raw and ns.Remove.IsKnownLine(source, raw)
 				-- With its icons, as the tooltip showed it; only its colours go.
 				local row = { kind = "check", text = raw and ns.WithIcons(raw) or L.SOURCES_UNREADABLE, tip = tip,
 					active = raw ~= nil and not hideAll }
-				if known then
-					tip.text = known.hint
-					row.checked = hideAll or ns.Remove.IsKnownOn(known.id)
-					row.click = function(on) ns.Remove.SetKnown(known.id, on) end
-				else
-					row.checked = hideAll or (raw ~= nil and ns.Remove.IsLineHidden(source, raw))
-					row.click = function(on) ns.Remove.SetLine(source, raw, on, LineTypes(source, raw, typeName)) end
-				end
+				row.checked = hideAll or (raw ~= nil and ns.Remove.IsLineHidden(source, raw))
+				row.click = function(on) ns.Remove.SetLine(source, raw, on, LineTypes(source, raw, typeName)) end
 				rows[#rows + 1] = row
 			end
 		end
@@ -427,8 +408,6 @@ local function ListRow(list, index)
 	end)
 	row.text = Text(row, "GameFontHighlight")
 	row.text:SetWordWrap(true)
-	row.note = Text(row, "GameFontDisableSmall")
-	row.note:SetWordWrap(true)
 	list.rows[index] = row
 	return row
 end
@@ -481,16 +460,6 @@ local function FillRow(list, index, spec, width)
 		if spec.active == false then row.text:SetFontObject(GameFontDisable) end
 	end
 	local height = row.text:GetStringHeight() + 12
-	row.note:ClearAllPoints()
-	if spec.note then
-		row.note:SetPoint("TOPLEFT", row.text, "BOTTOMLEFT", 0, -2)
-		row.note:SetWidth(width - textX)
-		row.note:SetText(spec.note)
-		row.note:Show()
-		height = height + row.note:GetStringHeight() + 2
-	else
-		row.note:Hide()
-	end
 	if spec.kind == "header" and index > 1 then height = height + 4 end
 	height = math.max(height, (spec.kind == "check" or toggle) and 30 or 20)
 	row:SetHeight(height)

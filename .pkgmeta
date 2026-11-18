@@ -11,8 +11,10 @@ externals:
   libs/LibSharedMedia-3.0: https://repos.wowace.com/wow/libsharedmedia-3-0/trunk/LibSharedMedia-3.0
 
 # The development commands: the TOC leaves them out with #@do-not-package@, and this keeps the file out of the zip.
+# Images holds the README's screenshots.
 ignore:
   - Dev.lua
+  - Images
 
 # The release notes on CurseForge and GitHub, instead of a list of commit messages.
 manual-changelog:
