@@ -1,8 +1,8 @@
 local _, ns = ...
 local L = ns.L
 
--- /ctt (design document 5). On its own it opens the options; the rest toggle the sources column or open a page.
--- /ct is left alone: short enough to clash, and close to Combat Text Extended's /ctx.
+-- /ctt on its own opens the options; the rest toggle the sources column or open a page.
+-- /ct is left alone: it's short enough to clash with other addons.
 
 local HELP = { L.HELP_OPTIONS, L.HELP_SOURCES, L.HELP_LAST, L.HELP_HELP }
 

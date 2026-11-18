@@ -1,7 +1,7 @@
 local _, ns = ...
 local L = ns.L
 
--- Shortened item lines (design document 3.4): "Use:", "Equip:", "Chance on hit:" and set bonus ("Set:", "(3) Set:")
+-- Shortened item lines: "Use:", "Equip:", "Chance on hit:" and set bonus ("Set:", "(3) Set:")
 -- lines, and the weapon's "(6.7 damage per second)". Each rule is a Lua pattern on what follows the game's prefix and
 -- a locale line for the short form, which goes after that prefix as the game wrote it. The captures are put into it
 -- in order (or in the rule's `order`), copied as the game wrote them except that a trailing ".0" goes (2.0% reads
@@ -12,11 +12,10 @@ local L = ns.L
 -- again by its first sentence, and the rest follows as the game wrote it ("Chance on hit: 42 damage. Naga are Stunned
 -- for 2 sec").
 --
--- Wording is Forever's, from launch (8 and 15 Nov, /ctt lines and /ctt capture, and the 1.60.1 Spell table on
--- wago.tools): two spaces between sentences, percentages on gear with one decimal ("by 2.0%"), and Equip lines typed
--- None. Rules not yet seen in game are marked in the design document. Only the English client has rules.
+-- Wording is Forever's: two spaces between sentences, percentages on gear with one decimal ("by 2.0%"), and Equip
+-- lines typed None. Only the English client has rules.
 --   ns.Condense.KindOf(lineType, text)   "use", "equip", "proc", "set", "dps" or nil
---   ns.Condense.Shorten(text, kind)      the short form, or nil
+--   ns.Condense.Shorten(text, kind)      the short form, or nil; and whether a rule matched
 --   ns.Condense.OPTION[kind]             the profile option that switches it
 
 ns.Condense = {}
@@ -65,9 +64,11 @@ end
 if SET and SET ~= "" then FIRST[SET:byte(1)] = true end
 
 function Condense.KindOf(lineType, text)
-	local kind = not ns.IsSecret(lineType) and KIND[lineType]
+	lineType = ns.Readable(lineType)
+	local kind = lineType ~= nil and KIND[lineType]
 	if kind then return kind end
-	if type(text) ~= "string" or ns.IsSecret(text) or not FIRST[text:byte(1) or 0] then return nil end
+	text = ns.Readable(text)
+	if type(text) ~= "string" or not FIRST[text:byte(1) or 0] then return nil end
 	for name, prefix in pairs(PREFIX) do
 		if prefix and text:sub(1, #prefix) == prefix then return name end
 	end
@@ -84,7 +85,10 @@ local EQUIP = {
 	{ "^%+" .. N .. " Attack Power against (.-)" .. END, "SHORT_ATTACK_POWER_AGAINST" },
 	{ "^%+" .. N .. " Attack Power in Cat, Bear, and Dire Bear forms only" .. END, "SHORT_FERAL_ATTACK_POWER" },
 	-- Spell power and healing
-	{ "^Increases damage and healing done by magical spells and effects by up to " .. N .. END, "SHORT_SPELL_POWER" },
+	-- Spell damage and healing: both shown, in the game's order. "Damage and healing" by one amount reads damage
+	-- first; "healing ... and damage ..." reads healing first.
+	{ "^Increases damage and healing done by magical spells and effects by up to " .. N .. END, "SHORT_DAMAGE_HEALING",
+		order = { 1, 1 } },
 	{ "^Increases healing done by up to " .. N .. " and damage done by up to " .. N
 		.. " for all magical spells and effects" .. END, "SHORT_HEALING_DAMAGE" }, -- Forever
 	{ "^Increases healing done by spells and effects by up to " .. N .. " and damage done by up to " .. N .. END,
@@ -107,7 +111,8 @@ local EQUIP = {
 	{ "^Improves your chance to get a critical strike with melee attacks by " .. N .. "%%" .. END, "SHORT_MELEE_CRIT" },
 	{ "^Improves your chance to get a critical strike with ranged weapons by " .. N .. "%%" .. END,
 		"SHORT_RANGED_CRIT" },
-	{ "^Improves your chance to get a critical strike with spells by " .. N .. "%%" .. END, "SHORT_SPELL_CRIT" },
+	-- Forever capitalises it on spell Equip lines ("a Critical Strike with Spells")
+	{ "^Improves your chance to get a [Cc]ritical [Ss]trike with [Ss]pells by " .. N .. "%%" .. END, "SHORT_SPELL_CRIT" },
 	{ "^Improves your chance to get a critical strike with all spells and attacks by " .. N .. "%%" .. END,
 		"SHORT_CRIT" },
 	{ "^Increases your critical strike chance with spells and attacks by " .. N .. "%%" .. END, "SHORT_CRIT" },
@@ -120,7 +125,7 @@ local EQUIP = {
 	{ "^Restores " .. N .. " [Hh]ealth per 5 sec" .. END, "SHORT_HP5" },
 	-- Defence
 	{ "^Increased Defense %+" .. N .. END, "SHORT_DEFENSE" },
-	{ "^Increases your chance to dodge an attack by " .. N .. "%%" .. END, "SHORT_DODGE" },
+	{ "^Increases your chance to [Dd]odge an attack by " .. N .. "%%" .. END, "SHORT_DODGE" }, -- Forever: "Dodge"
 	{ "^Increases your chance to [Pp]arry an attack by " .. N .. "%%" .. END, "SHORT_PARRY" },
 	{ "^Increases your [Pp]arry chance by " .. N .. "%%" .. END, "SHORT_PARRY" },
 	{ "^Decreases your chance to [Pp]arry an attack by " .. N .. "%%" .. END, "SHORT_PARRY_DOWN" },
@@ -135,6 +140,22 @@ local EQUIP = {
 	{ "^Increases ranged attack speed by " .. N .. "%%" .. END, "SHORT_RANGED_ATTACK_SPEED" },
 	{ "^Increases attack speed by " .. N .. "%%" .. END, "SHORT_ATTACK_SPEED" },
 	{ "^Increases your attack speed by " .. N .. "%%" .. END, "SHORT_ATTACK_SPEED" },
+	{ "^Increases mount speed by " .. N .. "%%" .. END, "SHORT_MOUNT_SPEED" },
+	-- Resisting crowd control ("Reduces the hit chance of Fear effects against you by 2%.")
+	{ "^Reduces the hit chance of (.-) effects against you by " .. N .. "%%" .. END, "SHORT_EFFECT_RESIST",
+		order = { 2, 1 } },
+	-- Damage back to whoever hits you (with and without the comma)
+	{ "^When struck in combat,? inflicts " .. N .. " (%a+) damage to the attacker" .. END, "SHORT_THORNS" },
+	-- Other gear effects. The +/- form only where the line really changes a stat (mana cost, cast
+	-- time, a stat some of the time); effects that deal damage (to attackers, on block, on hits) say what they do.
+	{ "^Reduces the mana cost of (.-) by " .. N .. " Mana" .. END, "SHORT_MANA_COST", order = { 2, 1 } },
+	{ "^Reduces the mana cost of (.-) by " .. N .. END, "SHORT_MANA_COST", order = { 2, 1 } },
+	{ "^Reduces the cast time of spells and effects that revive targets by " .. N .. "%%" .. END,
+		"SHORT_REVIVE_CAST_TIME" },
+	{ "^Increases (%a+) by " .. N .. " while (.-)" .. END, "SHORT_STAT_WHILE", order = { 2, 1, 3 } },
+	{ "^Spells and attacks against (.-) deal " .. N .. " (%a+) damage" .. END, "SHORT_DAMAGE_AGAINST",
+		order = { 2, 3, 1 } },
+	{ "^Deals " .. N .. " to " .. N .. " (%a+) damage every time you block" .. END, "SHORT_BLOCK_DAMAGE" },
 	-- Armour
 	{ "^Increases your armor by " .. N .. " while using a Shield or Buckler" .. END, "SHORT_SHIELD_ARMOR" },
 	{ "^Increases your armor by " .. N .. END, "SHORT_ARMOR" },
@@ -160,7 +181,7 @@ local EQUIP = {
 local RULES = {
 	enUS = {
 		use = {
-			-- Well Fed food (captured 15 Nov; the stat can be several words: "Attack Power", "Stamina and Spirit").
+			-- Well Fed food (the stat can be several words: "Attack Power", "Stamina and Spirit").
 			{ "^Restores " .. N .. " health over " .. N .. " sec%. Must remain seated while eating%. If you spend at least "
 				.. "%d+ sec%a* eating,? you will become well fed and gain " .. N .. " (.-) for %d+ %a+%. Additionally, "
 				.. "experience gained from kills is increased by " .. N .. "%%" .. END, "SHORT_FOOD_WELL_FED_XP" },
@@ -173,24 +194,29 @@ local RULES = {
 				.. " sec%. Must remain seated while eating" .. END, "SHORT_FOOD_DRINK" },
 			{ "^Restores " .. N .. " health over " .. N .. " sec%. Must remain seated while eating" .. END, "SHORT_FOOD" },
 			{ "^Restores " .. N .. " mana over " .. N .. " sec%. Must remain seated while drinking" .. END, "SHORT_DRINK" },
-			{ "^Restores " .. N .. " to " .. N .. " health" .. END, "SHORT_POTION" },
-			{ "^Restores " .. N .. " to " .. N .. " mana" .. END, "SHORT_MANA_POTION" },
+			-- Potions: Forever writes "health"/"mana" and "Health"/"Mana"
+			{ "^Restores " .. N .. " to " .. N .. " [Hh]ealth" .. END, "SHORT_POTION" },
+			{ "^Restores " .. N .. " to " .. N .. " [Mm]ana" .. END, "SHORT_MANA_POTION" },
+			-- Healing over time without eating (a trinket; later sentences follow as written)
+			{ "^Restores " .. N .. " [Hh]ealth over " .. N .. " sec" .. END, "SHORT_BANDAGE" },
 			{ "^Heals " .. N .. " damage over " .. N .. " sec" .. END, "SHORT_BANDAGE" },
-			{ "^Heals the target for " .. N .. " damage over " .. N .. " sec" .. END, "SHORT_BANDAGE" }, -- captured
-			{ "^Heal your target for " .. N .. " to " .. N .. END, "SHORT_HEAL_TARGET" }, -- captured 15 Nov
+			{ "^Heals the target for " .. N .. " damage over " .. N .. " sec" .. END, "SHORT_BANDAGE" },
+			{ "^Heal your target for " .. N .. " to " .. N .. END, "SHORT_HEAL_TARGET" },
 			{ "^Returns you to (.-)%. Speak to an Innkeeper in a different place to change your home location" .. END,
 				"SHORT_HEARTHSTONE", dropCooldown = true },
 			-- Elixirs, buff potions and trinkets; run speed first
 			{ "^Increases run speed by " .. N .. "%% for " .. N .. " sec" .. END, "SHORT_RUN_SPEED" },
 			{ "^Increases damage and healing done by magical spells and effects by up to " .. N .. " for (.-)" .. END,
-				"SHORT_SPELL_POWER_FOR" }, -- captured 15 Nov
+				"SHORT_DAMAGE_HEALING_FOR", order = { 1, 1, 2 } }, -- both, damage first
 			{ "^Increases your (%a+) by " .. N .. "%. Effect lasts for (.-)" .. END, "SHORT_BUFF", order = { 2, 1, 3 } },
 			{ "^Increases (%a+) by " .. N .. " for (.-)" .. END, "SHORT_BUFF", order = { 2, 1, 3 } },
 			{ "^Increases your (%a+) by " .. N .. END, "SHORT_STAT", order = { 2, 1 } },
-			{ "^Increase (%a+) by " .. N .. END, "SHORT_STAT", order = { 2, 1 } }, -- "Increase Rage by 30." (captured)
-			{ "^Increases (%a+) by " .. N .. END, "SHORT_STAT", order = { 2, 1 } }, -- "Increases Stamina by 3." (captured)
-			{ "^Increases your attack speed by " .. N .. "%% for (.-)" .. END, "SHORT_ATTACK_SPEED_FOR" }, -- captured
-			-- Fishing lures (captured: "for 10 min." and "for 10 minutes.")
+			{ "^Increase (%a+) by " .. N .. END, "SHORT_STAT", order = { 2, 1 } }, -- "Increase Rage by 30."
+			{ "^Increases (%a+) by " .. N .. END, "SHORT_STAT", order = { 2, 1 } }, -- "Increases Stamina by 3."
+			{ "^Increases your attack speed by " .. N .. "%% for (.-)" .. END, "SHORT_ATTACK_SPEED_FOR" },
+			{ "^Increases all attributes by " .. N .. " for (.-)" .. END, "SHORT_ALL_STATS_FOR" },
+			{ "^Increases your Spell Hit chance by " .. N .. "%% for (.-)" .. END, "SHORT_SPELL_HIT_FOR" },
+			-- Fishing lures ("for 10 min." and "for 10 minutes.")
 			{ "^When applied to your fishing pole, increases Fishing by " .. N .. " for (.-)" .. END, "SHORT_LURE" },
 			-- Recipes and patterns: what they teach (a second sentence follows as written)
 			{ "^Teaches you how to cook an? (.-)" .. END, "SHORT_RECIPE" },
@@ -199,6 +225,8 @@ local RULES = {
 			{ "^Teaches you how to make (.-)" .. END, "SHORT_RECIPE" },
 			{ "^Teaches you how to sew an? (.-)" .. END, "SHORT_RECIPE" },
 			{ "^Teaches you how to sew (.-)" .. END, "SHORT_RECIPE" },
+			-- Enchanting formulae (line type ItemSpellTriggerLearn): the item with its article, then the stat
+			{ "^Teaches you how to permanently enchant (an? .-) so it grants (.-)" .. END, "SHORT_FORMULA" },
 			-- Cure kits (a second sentence, "Not usable in combat.", follows as written)
 			{ "^Target is cured of (%a+) up to level " .. N .. END, "SHORT_CURE" },
 			-- Enchant items (armour kits): the stat, its value, the armour, the slots, and the item level if there is one
@@ -229,7 +257,7 @@ local RULES = {
 				.. N .. " sec" .. END, "SHORT_PROC_DOT" },
 			{ "^Wounds the target causing them to bleed for " .. N .. " damage over " .. N .. " sec" .. END,
 				"SHORT_PROC_BLEED" },
-			{ "^Wounds the target for " .. N .. " damage" .. END, "SHORT_PROC_PLAIN" }, -- captured 15 Nov
+			{ "^Wounds the target for " .. N .. " damage" .. END, "SHORT_PROC_PLAIN" },
 			{ "^Steals " .. N .. " life from target enemy" .. END, "SHORT_PROC_DRAIN" },
 		},
 	},
@@ -242,6 +270,20 @@ local rules = RULES[GetLocale()] or {}
 -- ("by up to 5.", as the final full stop is optional) goes too.
 local function Tidy(value)
 	return value and (value:gsub("%.$", ""):gsub("%.0+$", ""))
+end
+
+-- Durations in seconds read "30s" everywhere in a short form ("for 30 sec", "for 30 seconds"),
+-- the sentences that follow it as written included. The cooldown is put back after this, so it keeps the game's
+-- wording (its |4 plural code). Minutes and hours stay as written.
+local SECONDS = {
+	enUS = { "(%d) seconds?%f[^%a]", "(%d) sec%f[^%a]" },
+}
+SECONDS.enGB = SECONDS.enUS
+local secondsPatterns = SECONDS[GetLocale()] or {}
+
+local function Seconds(text)
+	for i = 1, #secondsPatterns do text = text:gsub(secondsPatterns[i], "%1s") end
+	return text
 end
 
 -- The text as the rules see it: no colour codes, one plain space wherever the game put any run of spaces.
@@ -288,12 +330,13 @@ local function ByRules(list, body)
 				for to, from in ipairs(order) do ordered[to] = found[from] end
 				found = ordered
 			end
+			local key = rule[2]
 			-- Protected: a translation with a different number of %s (or a rule's `order` naming a missing capture)
 			-- mustn't raise inside the game's tooltip build; the line then stays as the game wrote it, and the result
 			-- is cached, so it's reported once.
-			local ok, short = pcall(string.format, L[rule[2]], unpack(found))
+			local ok, short = pcall(string.format, L[key], unpack(found))
 			if ok then return short, rule end
-			ns.ReportError("condense " .. tostring(rule[2]), short)
+			ns.ReportError("condense " .. tostring(key), short)
 			return nil
 		end
 	end
@@ -304,12 +347,13 @@ local function Match(text, kind)
 	local plain = Plain(text)
 	if kind == "dps" then
 		local value = DPS and plain:match(DPS)
-		return value and L.SHORT_DPS:format(value) or false
+		if value then return L.SHORT_DPS:format(value), true end
+		return false, false
 	end
 	local list = rules[kind]
 	local body, prefix
 	if list then body, prefix = Body(plain, kind) end
-	if not body then return false end
+	if not body then return false, false end
 	local profile = ns.profile or {}
 	local cooldown
 	if cooldownPattern then
@@ -326,45 +370,46 @@ local function Match(text, kind)
 			if short then short = short .. ". " .. rest:gsub("%.$", "") end
 		end
 	end
+	-- With Leave out "Equip:", every Equip line loses its prefix, shortened or not. Stat short forms start
+	-- with + or -, so those read like the game's white stat lines ("+3 Stamina").
+	local dropPrefix = kind == "equip" and profile.dropEquipPrefix
 	if not short then
-		-- No rule: only a 1 second cooldown can go, the rest stays as the game wrote it.
-		if dropOneSecond then return prefix .. " " .. body end
-		return false
+		-- No rule: the rest stays as the game wrote it; only "Equip:" or a 1 second cooldown can go.
+		if dropPrefix then return cooldown and (body .. " " .. cooldown) or body, false end
+		if dropOneSecond then return prefix .. " " .. body, false end
+		return false, false
 	end
-	-- Equip lines can lose their prefix and read like the game's white stat lines ("+3 Stamina"), when the short form
-	-- starts that way (every Equip rule's does).
-	if not (kind == "equip" and profile.dropEquipPrefix and short:find("^[%+%-]%d")) then
-		short = prefix .. " " .. short
-	end
+	short = Seconds(short)
+	if not dropPrefix then short = prefix .. " " .. short end
 	if cooldown and not rule.dropCooldown and not dropOneSecond then short = short .. " " .. cooldown end
-	return short
+	return short, true
 end
 
--- Bag and character tooltips rebuild five times a second (design document 2.9), so each text is matched once.
+-- Bag and character tooltips rebuild five times a second, so each text is matched once, per
+-- kind: [text] = { short form or false, whether a rule matched }.
 local CACHE_SIZE = 500
-local KINDS = { "use", "equip", "proc", "set", "dps" }
-local cache, cached
-
-local function NewCache()
-	cache, cached = {}, 0
-	for _, kind in ipairs(KINDS) do cache[kind] = {} end
-end
-NewCache()
+local cache = {}
+for kind in pairs(Condense.OPTION) do cache[kind] = ns.Cache(CACHE_SIZE) end
 
 -- The short forms depend on these options too, so they're worked out again when one changes.
 local SHAPING = { dropEquipPrefix = true, hideSecondCooldown = true }
 ns.Listen("SETTINGS_CHANGED", function(what)
-	if what == nil or SHAPING[what] then NewCache() end
+	if what == nil or SHAPING[what] then
+		for _, kindCache in pairs(cache) do kindCache:Clear() end
+	end
 end)
 
+-- The line as Clean Tooltips shows it (nil: as the game wrote it), and whether a rule matched it (false when only
+-- "Equip:" or a 1 second cooldown went; /ctt capture counts those as not shortened).
 function Condense.Shorten(text, kind)
-	if type(text) ~= "string" or ns.IsSecret(text) or not cache[kind] then return nil end
-	local short = cache[kind][text]
-	if short == nil then
-		short = Match(text, kind)
-		if cached >= CACHE_SIZE then NewCache() end
-		cache[kind][text] = short
-		cached = cached + 1
+	text = ns.Readable(text)
+	local kindCache = cache[kind]
+	if type(text) ~= "string" or not kindCache then return nil, false end
+	local entry = kindCache.items[text]
+	if entry == nil then
+		local short, matched = Match(text, kind)
+		entry = { short, matched == true }
+		kindCache:Set(text, entry)
 	end
-	return short or nil
+	return entry[1] or nil, entry[2]
 end

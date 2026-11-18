@@ -7,23 +7,26 @@
 ## IconTexture: Interface\Icons\INV_Misc_Note_02
 ## SavedVariables: CleanTooltipsDB
 ## OptionalDeps: LibSharedMedia-3.0
+## X-Curse-Project-ID: 1814714
 
 embeds.xml
 Locales\enUS.lua
 Core.lua
-# Blizzard's own lines: dropped, shortened and coloured, and the tooltip's look (design document 3).
+# Blizzard's own lines: dropped, shortened and coloured, and the tooltip's look.
 Condense.lua
 Blizzard.lua
 Style.lua
-# Other addons' lines: who added each one, hiding them, the sources column (4).
+# Other addons' lines: who added each one, hiding them, the sources column.
 Sources.lua
 Remove.lua
 SourcesView.lua
-# Options > AddOns with preview tooltips, and /ctt (5).
+# Options > AddOns with preview tooltips, and /ctt.
 Preview.lua
+OptionsWidgets.lua
 Options.lua
+Profiles.lua
 Commands.lua
 #@do-not-package@
-# Development commands and the beta check probes (/ctt lines, capture, perf, probe; design document 6).
+# Development commands and in-game probes (/ctt lines, capture, perf, watch, probe).
 Dev.lua
 #@end-do-not-package@

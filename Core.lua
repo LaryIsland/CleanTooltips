@@ -9,13 +9,15 @@ for key, text in pairs(ns.L) do
 	end
 end
 
--- The tooltips whose lines are attributed and can be removed (design document 1.2). Clean-up and styling reach every
+-- The tooltips whose lines are attributed and can be removed. Clean-up and styling reach every
 -- data-driven tooltip through TooltipDataProcessor, which is global.
 ns.TOOLTIPS = { "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2", "EmbeddedItemTooltip" }
 
 -- Secret values ------------------------------------------------------------------------------------------------------
--- Unit tooltips can hold secret text in combat (design document 2.8). It can be shown, but never compared,
--- pattern-matched or measured, so everything that reads tooltip text checks first.
+-- Unit tooltips can hold secret text in combat. It can be shown, but never compared,
+-- pattern-matched or measured, so everything that reads tooltip, unit or stack values reads them through
+-- ns.Readable first and then works only on what it returned: a secret becomes nil before anything compares it, tests
+-- it or asks its type.
 
 function ns.IsSecret(value)
 	return issecretvalue ~= nil and issecretvalue(value) == true
@@ -23,7 +25,7 @@ end
 
 -- The value when it can be read, otherwise nil.
 function ns.Readable(value)
-	if ns.IsSecret(value) then return nil end
+	if issecretvalue ~= nil and issecretvalue(value) == true then return nil end
 	return value
 end
 
@@ -45,10 +47,38 @@ function ns.PatternFromFormat(format)
 	return "^" .. pattern .. "$"
 end
 
+-- Text without colour codes, its icons kept (|T...|t textures, |A...|a atlases), for showing a line as it looked.
+function ns.WithIcons(text)
+	text = ns.Readable(text)
+	if type(text) ~= "string" then return nil end
+	return (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+end
+
 -- Text without colour codes and textures, for showing and matching.
 function ns.PlainText(text)
-	if type(text) ~= "string" or ns.IsSecret(text) then return nil end
+	text = ns.Readable(text)
+	if type(text) ~= "string" then return nil end
 	return (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""):gsub("|A.-|a", ""))
+end
+
+-- A capped cache for the hot paths (stacks, texts, shapes, short forms): reads are plain table lookups on
+-- `cache.items`; Set starts afresh once `size` entries have been stored, so it never grows past that.
+--   local cache = ns.Cache(500); local value = cache.items[key]; cache:Set(key, value); cache:Clear()
+local CacheMethods = {}
+CacheMethods.__index = CacheMethods
+
+function CacheMethods:Set(key, value)
+	if self.count >= self.size then self:Clear() end
+	self.items[key] = value
+	self.count = self.count + 1
+end
+
+function CacheMethods:Clear()
+	self.items, self.count = {}, 0
+end
+
+function ns.Cache(size)
+	return setmetatable({ items = {}, count = 0, size = size }, CacheMethods)
 end
 
 -- A tooltip's left and right font strings for line `index`.
@@ -61,8 +91,8 @@ function ns.Line(tooltip, index)
 	return _G[name .. "TextLeft" .. index], _G[name .. "TextRight" .. index]
 end
 
--- CT's own changes to tooltip text happen inside ns.Editing, so the attribution hooks know they're CT's (design
--- document 4.1) without reading the call stack.
+-- CT's own changes to tooltip text happen inside ns.Editing, so the attribution hooks know they're CT's
+-- without reading the call stack.
 ns.editing = false
 function ns.Editing(fn, ...)
 	local was = ns.editing -- so a call inside another doesn't end the outer one early
@@ -72,7 +102,7 @@ function ns.Editing(fn, ...)
 	if not ok then ns.ReportError("editing", err) end
 end
 
--- CT's own preview tooltips that show the game's tooltip untouched (design document 5). Every CT callback skips them.
+-- CT's own preview tooltips that show the game's tooltip untouched. Every CT callback skips them.
 ns.raw = setmetatable({}, { __mode = "k" })
 function ns.Active(tooltip)
 	return ns.profile ~= nil and not ns.raw[tooltip]
@@ -89,11 +119,16 @@ function ns.ReportError(where, err)
 	geterrorhandler()(addonName .. " (" .. tostring(where) .. "): " .. tostring(err))
 end
 
--- Calls fn safely, reporting any error with where it happened.
 function ns.SafeCall(where, fn, ...)
 	local ok, err = xpcall(fn, WithStack, ...)
 	if not ok then ns.ReportError(where, err) end
 	return ok
+end
+
+-- `fn` made safe to hook onto a tooltip or font string: those hooks run inside whoever called the method (the game's
+-- tooltip build, another addon's handler), so an error is reported here instead of stopping that caller part way.
+function ns.Guarded(where, fn)
+	return function(...) ns.SafeCall(where, fn, ...) end
 end
 
 local events = {}
@@ -157,10 +192,10 @@ function ns.Throttled(fn)
 	end
 end
 
--- Shown tooltips are rebuilt after a setting changes, so it applies at once (design document 5). Only data-driven
+-- Shown tooltips are rebuilt after a setting changes, so it applies at once. Only data-driven
 -- tooltips can be; others show the change next time. At most once a frame. Not in combat: the rebuild runs from
--- addon code, and tooltip processing tainted with secret data shows no lines (design 2.8, Tech Debt CTT-D14); the next
--- tooltip picks the change up.
+-- addon code, and tooltip processing tainted with secret data shows no lines; the next tooltip picks the
+-- change up.
 ns.RefreshShownTooltips = ns.Throttled(function()
 	if ns.InCombat() then return end
 	for _, name in ipairs(ns.TOOLTIPS) do
@@ -173,20 +208,20 @@ ns.RefreshShownTooltips = ns.Throttled(function()
 end)
 
 -- Saved settings ------------------------------------------------------------------------------------------------------
--- Everything players set is in AceDB profiles (design document 3.10 for the defaults).
+-- Everything players set is in AceDB profiles.
 --   ns.db       the AceDB object
 --   ns.profile  the current profile
 --   ns.global   account-wide: the default profile for new characters, development captures
 
--- Everything is off by default: with a new profile, tooltips are exactly the game's until the player changes something
--- (user's rule, 15 Nov).
+-- Everything is off by default: with a new profile, tooltips are exactly the game's until the player changes something.
 -- The clean-up options, in the order the Clean-up page shows them: one list for the page's Defaults button and for
 -- rebuilding shown tooltips when one changes (Blizzard.lua).
-ns.CLEANUP_FIELDS = { "hideSellPrice", "hideMetLevel", "shortenUse", "hideSecondCooldown", "shortenEquip",
-	"dropEquipPrefix", "hideDurability", "shortenDps" }
+ns.CLEANUP_FIELDS = { "hideSellPrice", "hideMetLevel", "hideMetRequirements", "hideSoulbound", "hideUnique",
+	"hideDurability", "shortenDps", "shortenEquip", "dropEquipPrefix", "shortenUse", "hideSecondCooldown", "hideFaction",
+	"hidePvP" }
 
 ns.PROFILE_DEFAULTS = {
-	-- Clean-up (design document 3.1 to 3.4)
+	-- Clean-up
 	hideSellPrice = false,
 	hideDurability = false,
 	hideMetLevel = false,
@@ -195,7 +230,12 @@ ns.PROFILE_DEFAULTS = {
 	shortenEquip = false,
 	dropEquipPrefix = false,
 	shortenDps = false,
-	-- Look (3.5 to 3.9)
+	hideMetRequirements = false,
+	hideSoulbound = false,
+	hideUnique = false,
+	hideFaction = false,
+	hidePvP = false,
+	-- Look
 	classNames = false,
 	hostileRed = false,
 	borderClass = false,
@@ -204,10 +244,11 @@ ns.PROFILE_DEFAULTS = {
 	healthBar = false,  -- a LibSharedMedia status bar's name; false keeps the game's
 	font = false,       -- a LibSharedMedia font's name; false keeps the game's
 	background = false, -- { r, g, b, a }; false keeps the game's
-	-- Other addons' lines (4.2, 4.3)
+	-- Other addons' lines
 	showSources = false,
 	hideAddon = {},     -- [addon folder] = true: every line it adds
-	hideLine = {},      -- [addon folder] = { [line shape] = true } (Sources.Shape: numbers as "#")
+	hideLine = {},      -- [addon folder] = { [line shape] = { types, sites } } (Sources.Shape: numbers as "#"; Remove.lua)
+	hideWritten = {},   -- [addon folder] = { [call site] = { prefix, label, types } }: lines added blank, then written
 	known = {},         -- [known line id] = true (Remove.lua)
 }
 

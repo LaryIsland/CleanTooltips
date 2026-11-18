@@ -1,9 +1,11 @@
 local _, ns = ...
 
--- The tooltip's look (design document 3.5 to 3.9): class-coloured player names, border colours, the health bar's
+-- The tooltip's look: class-coloured player names, border colours, the health bar's
 -- texture, the font and the background. Only post-hooks, TooltipDataProcessor callbacks and colour/texture calls on
--- the tooltip's own pieces; nothing Blizzard's is replaced (1.1).
+-- the tooltip's own pieces; nothing Blizzard's is replaced.
 --   ns.Style.Watch(tooltip)   styles a tooltip the hooks below wouldn't otherwise reach (CT's previews)
+--   ns.Style.SetBorder(tooltip, color), SetBorderGrey(nineSlice, grey), IsBorderGrey(nineSlice)
+--   ns.Style.WatchHealthBar(bar), MediaNames(mediaType)
 
 ns.Style = {}
 local Style = ns.Style
@@ -26,55 +28,55 @@ local applying = false                               -- CT's own colour calls, w
 local function ClassColor(unit)
 	if not ns.True(UnitIsPlayer(unit)) then return nil end
 	local _, class = UnitClass(unit)
-	if ns.IsSecret(class) or class == nil then return nil end
+	class = ns.Readable(class)
+	if class == nil then return nil end
 	return (C_ClassColor and C_ClassColor.GetClassColor(class)) or (RAID_CLASS_COLORS and RAID_CLASS_COLORS[class])
 end
 
 -- Blizzard draws a player's name red when each of you can attack the other (GameTooltip_UnitColor). nil: unknown.
 local function IsHostilePlayer(unit)
 	local theyCan, youCan = UnitCanAttack(unit, "player"), UnitCanAttack("player", unit)
-	if ns.IsSecret(theyCan) or ns.IsSecret(youCan) then return nil end
+	if ns.IsSecret(theyCan) or ns.IsSecret(youCan) then return nil end -- before either is compared
 	return theyCan == true and youCan == true
 end
 
 local function ReactionColor(unit)
-	local reaction = UnitReaction(unit, "player")
-	if ns.IsSecret(reaction) or reaction == nil then return nil end
+	local reaction = ns.Readable(UnitReaction(unit, "player"))
+	if reaction == nil then return nil end
 	return FACTION_BAR_COLORS and FACTION_BAR_COLORS[reaction]
 end
 
 local function QualityColor(data)
-	local item = data.hyperlink or data.id
-	if ns.IsSecret(item) or item == nil then return nil end
+	local item = ns.Readable(data.hyperlink) or ns.Readable(data.id)
+	if item == nil then return nil end
 	local quality = C_Item.GetItemQualityByID(item)
-	-- Poor and common items keep the plain border: colouring them adds nothing (3.6).
+	-- Poor and common items keep the plain border: colouring them adds nothing.
 	if type(quality) ~= "number" or quality < UNCOMMON then return nil end
 	return ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
 end
 
--- Player names (3.5) ---------------------------------------------------------------------------------------------------
+-- Player names ---------------------------------------------------------------------------------------------------------
 -- Blizzard's own pre-call has coloured the name by reaction (players white); a player's becomes their class colour.
 
 TooltipDataProcessor.AddLinePostCall(LineType.UnitName, function(tooltip, lineData)
-	local unit = lineData.unitToken
-	if ns.IsSecret(unit) or unit == nil then return end
+	local unit = ns.Readable(lineData.unitToken)
+	if unit == nil then return end
 	unitOf[tooltip] = unit
 	if not (ns.Active(tooltip) and ns.profile.classNames) then return end
 	local color = ClassColor(unit)
 	if not color then return end
 	if ns.profile.hostileRed and IsHostilePlayer(unit) ~= false then return end
-	local index = lineData.lineIndex
-	local line = index and not ns.IsSecret(index) and ns.Line(tooltip, index)
+	local index = ns.Readable(lineData.lineIndex)
+	local line = index and ns.Line(tooltip, index)
 	if line then line:SetTextColor(color.r, color.g, color.b) end
 end)
 
--- Borders and background (3.6, 3.9) -----------------------------------------------------------------------------------
--- SharedTooltip_SetBackdropStyle puts the game's colours back whenever a tooltip is shown or hidden (2.4), and other
--- addons may set them too, so CT's colours are put back after each (as TipTac does, 4.6).
+-- Borders and background ----------------------------------------------------------------------------------------------
+-- SharedTooltip_SetBackdropStyle puts the game's colours back whenever a tooltip is shown or hidden, and other
+-- addons may set them too, so CT's colours are put back after each (as TipTac does).
 
 -- Forever's tooltip border art is gold (its bright edges about 0.97, 0.86, 0.69), and a border colour multiplies it,
--- so a quality colour came out darker and duller than the item's name (rare blue looked off, 15 Nov). While CT colours
--- a border, its pieces are desaturated to grey and the colour is lifted by the art's brightness (0.87, capped at 1),
+-- so a quality colour comes out darker and duller than the item's name. While CT colours a border, its pieces are desaturated to grey and the colour is lifted by the art's brightness (0.87, capped at 1),
 -- so the border matches the name; the game's own border gets its gold art back.
 local BORDER_PIECES = { "TopLeftCorner", "TopRightCorner", "BottomLeftCorner", "BottomRightCorner", "TopEdge",
 	"BottomEdge", "LeftEdge", "RightEdge" }
@@ -168,8 +170,8 @@ end
 
 local function BorderColor(tooltip, profile)
 	local data = tooltip.GetPrimaryTooltipData and tooltip:GetPrimaryTooltipData()
-	local dataType = data and data.type
-	if ns.IsSecret(dataType) or dataType == nil then return nil end
+	local dataType = data and ns.Readable(data.type)
+	if dataType == nil then return nil end
 	if dataType == TooltipType.Unit then
 		local unit = unitOf[tooltip]
 		if not unit then return nil end
@@ -201,9 +203,9 @@ hooksecurefunc("SharedTooltip_SetBackdropStyle", function(tooltip)
 	ApplyBackground(tooltip)
 end)
 
--- Health bar (3.7) -----------------------------------------------------------------------------------------------------
+-- Health bar -----------------------------------------------------------------------------------------------------------
 -- SetStatusBarTexture once, then the texture itself for later changes: setting the bar's texture again makes it
--- flicker (4.6). The bar's colour stays Blizzard's.
+-- flicker. The bar's colour stays Blizzard's.
 
 local bars = {}            -- every health bar styled: GameTooltip's and the previews'
 local barOriginal = {}     -- [bar] = its texture before CT changed it
@@ -238,8 +240,8 @@ function Style.WatchHealthBar(bar)
 	if ns.profile then ApplyHealthBar(bar) end
 end
 
--- Font (3.8) -----------------------------------------------------------------------------------------------------------
--- The three font objects every tooltip line inherits (2.6). Each keeps its own size and outline.
+-- Font -----------------------------------------------------------------------------------------------------------------
+-- The three font objects every tooltip line inherits. Each keeps its own size and outline.
 
 local FONT_OBJECTS = { "GameTooltipHeaderText", "GameTooltipText", "GameTooltipTextSmall" }
 local originalFonts = {}

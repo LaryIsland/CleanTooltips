@@ -1,31 +1,38 @@
 local _, ns = ...
 
--- Preview tooltips for the options pages (design document 5): CT's own tooltips made from GameTooltipTemplate, so
+-- Preview tooltips for the options pages: CT's own tooltips made from GameTooltipTemplate, so
 -- the whole data pipeline (Blizzard's rules, CT's callbacks, other addons' callbacks) runs on them exactly as on
 -- GameTooltip. A "raw" preview is skipped by every CT callback, to show the game's own tooltip beside CT's.
 --   ns.Preview.Create(parent, raw)                     a new preview tooltip, drawn at the parent's level
 --   ns.Preview.Place(tooltip, owner, point, relativeTo, relativePoint, x, y)
---   ns.Preview.SAMPLES                                 sample items: { id, durability = { current, max } }
+--   ns.Preview.SAMPLES                                 sample items: { id, durability = { current, max }, setPieces,
+--                                                      own, requirementsMet } (SampleData)
 --   ns.Preview.ShowSample(tooltip, sample)              builds the tooltip for a sample
+--   ns.Preview.LOOK_ITEM, SampleName(sample), WhenLoaded(id, fn), Backing(tooltip)
 
 ns.Preview = {}
 local Preview = ns.Preview
 
--- Sample items, chosen from /ctt capture (15 Nov) so the fewest items show the most of the shortening rules. Gear
--- gets a full durability line, as the game shows none for an item you don't own (launch checks, 8 Nov); it has no API
--- for an unowned item's maximum durability and Forever's item data doesn't list it, so 100 is illustrative.
+-- Sample items. The first five go through the Clean-up page's options in order, each showing the next ones: the ribs
+-- the sell price and level requirement, the bandage the other requirements, the Hearthstone "Soulbound" and "Unique",
+-- the staff durability, dps and the Equip lines, the armour kit the Use lines. The rest show more of the shortening
+-- rules. Gear gets a full durability line, as the game shows none for an item you don't own; it has no API for an
+-- unowned item's maximum durability and Forever's item data doesn't list it, so 100 is illustrative.
 Preview.SAMPLES = {
-	{ id = 2687 },  -- Dry Pork Ribs: Well Fed food with the XP bonus, a 1 second cooldown, a level requirement
-	{ id = 929 },   -- Healing Potion: potion range (Requires Level 12)
+	{ id = 2687 },  -- Dry Pork Ribs: sell price, a level requirement; Well Fed food with the XP bonus, a 1 second cooldown
+	-- Heavy Silk Bandage: Requires First Aid (125), drawn as met; a bandage's Use line
+	{ id = 6451, requirementsMet = true },
+	-- The player's own Hearthstone, from their bags: "Soulbound" and "Unique"; its Use line
+	{ id = 6948, own = true },
+	{ id = 271767, durability = { 100, 100 } }, -- Healer's Staff: durability, dps, healing and spell damage, mana per 5
+	{ id = 4265 },  -- Heavy Armor Kit: an armour kit's Use line with an item level ("ilvl")
 	{ id = 12640, durability = { 100, 100 } }, -- Lionheart Helm: crit, hit, Requires Level 57
 	{ id = 2816, durability = { 100, 100 } },  -- Death Speaker Scepter: Shadow damage, healing, health per 5
 	-- Scarlet Leggings: drawn as if 4 pieces of the set were worn, so the first bonuses show active ("Set:", resist,
 	-- attack power vs Undead) and the later ones inactive ("(N) Set:", hit)
 	{ id = 10330, durability = { 100, 100 }, setPieces = 4 },
 	{ id = 3078, durability = { 100, 100 } },  -- a weapon with "Chance on hit:" and a second sentence; dps
-	{ id = 271767, durability = { 100, 100 } }, -- Healer's Staff: healing and spell damage, mana per 5, dps
 	{ id = 282283, durability = { 100, 100 } }, -- Malignant Root: attack power, spell power
-	{ id = 4265 },  -- Heavy Armor Kit: armour kit with an item level ("ilvl")
 }
 
 local LineType = Enum.TooltipDataLineType
@@ -36,12 +43,15 @@ local LineType = Enum.TooltipDataLineType
 --   durability = { current, max }   a durability line where the game puts it (before the requirements and sell price)
 --   setPieces = n                    the item's set drawn as if n pieces were worn: the header's count, n pieces listed
 --                                    as worn (this item first), and the bonuses for n or fewer pieces active
+--   own = true                       the player's own copy, from their bags ("Soulbound", its own GUID); without one,
+--                                    drawn as owned ("Soulbound", and counted as owned for "Unique": data.ctOwned)
+--   requirementsMet = true           requirements other than class, race and level drawn as met (white, not red)
 local AFTER_DURABILITY = { [LineType.UsageRequirement] = true, [LineType.SellPrice] = true }
 
 -- Patterns from the game's own strings: "Chain of the Scarlet Crusade (0/6)" and "(3) Set: ...".
 local SET_NAME = ns.PatternFromFormat(ITEM_SET_NAME)            -- name, worn, total
 local SET_BONUS_GRAY = ns.PatternFromFormat(ITEM_SET_BONUS_GRAY) -- pieces, text
--- A worn piece in the set's list: Classic's colour for it (light yellow); [Open] Forever's, to check in game.
+-- A worn piece in the set's list: Classic's colour for it (light yellow), which reads like a real worn set in game.
 local SET_WORN_COLOR = CreateColor(1, 1, 0.6)
 
 local function CopyLine(line, changes)
@@ -55,8 +65,8 @@ local function WithSetPieces(lines, worn)
 	local name = lines[1] and lines[1].leftText
 	local inList, listed = false, 0
 	for i, line in ipairs(lines) do
-		local text = line.leftText
-		if type(text) == "string" and not ns.IsSecret(text) then
+		local text = ns.Readable(line.leftText)
+		if type(text) == "string" then
 			-- (Two statements each: "x and f()" would keep only f's first result.)
 			local setName, wornNow, total, pieces, bonus
 			if SET_NAME then setName, wornNow, total = text:match(SET_NAME) end
@@ -84,12 +94,43 @@ local function WithSetPieces(lines, worn)
 	end
 end
 
+-- The tooltip data of the player's own copy of an item, from their bags, or nil.
+local function OwnCopy(id)
+	if not (C_Container and C_Container.GetContainerNumSlots and C_TooltipInfo.GetBagItem) then return nil end
+	for bag = 0, NUM_BAG_SLOTS or 4 do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
+			if C_Container.GetContainerItemID(bag, slot) == id then return C_TooltipInfo.GetBagItem(bag, slot) end
+		end
+	end
+	return nil
+end
+
+-- A requirement Hide other requirements you meet acts on: not the level one (its own option), and not one that always
+-- shows (class, race, a level range; Blizzard.lua's list).
+local function IsOtherRequirement(line)
+	local text = ns.Readable(line.leftText)
+	if line.type ~= LineType.UsageRequirement or type(text) ~= "string" then return false end
+	local minLevel = ns.Blizzard.patterns.minLevel
+	if minLevel and text:find(minLevel) then return false end
+	return not ns.Blizzard.IsKeptRequirement(text)
+end
+
 local function SampleData(sample)
-	local data = C_TooltipInfo.GetItemByID(sample.id)
+	local own = sample.own and OwnCopy(sample.id)
+	local data = own or C_TooltipInfo.GetItemByID(sample.id)
 	if not (data and data.lines) then return nil end
 	local lines = {}
 	for i, line in ipairs(data.lines) do lines[i] = line end
 	if sample.setPieces then WithSetPieces(lines, sample.setPieces) end
+	-- Not in the bags: drawn as the player's own, as a set is drawn as worn.
+	local drawnOwned = sample.own and not own
+	for i, line in ipairs(lines) do
+		if drawnOwned and line.type == LineType.ItemBinding and ITEM_SOULBOUND then
+			lines[i] = CopyLine(line, { leftText = ITEM_SOULBOUND })
+		elseif sample.requirementsMet and IsOtherRequirement(line) then
+			lines[i] = CopyLine(line, { leftColor = HIGHLIGHT_FONT_COLOR })
+		end
+	end
 	if sample.durability and DURABILITY_TEMPLATE then
 		local durability = { type = LineType.None, leftColor = HIGHLIGHT_FONT_COLOR,
 			leftText = DURABILITY_TEMPLATE:format(sample.durability[1], sample.durability[2]) }
@@ -105,6 +146,7 @@ local function SampleData(sample)
 	local copy = {}
 	for key, value in pairs(data) do copy[key] = value end
 	copy.lines = lines
+	copy.ctOwned = drawnOwned or nil -- CT's own copy of the data, so its own marker; Blizzard.lua's IsOwned reads it
 	return copy
 end
 
@@ -112,10 +154,10 @@ end
 Preview.LOOK_ITEM = 12640
 
 -- With a getter, not the data itself: when the item's data arrives later (TOOLTIP_DATA_UPDATE), the tooltip's refresh
--- calls the getter again and gets the whole item, durability line and all. Handed only data, the refresh reused what
--- it had, so a sample first shown before its item had loaded stayed half built (15 Nov).
+-- calls the getter again and gets the whole item, durability line and all. Handed only data, the refresh reuses what
+-- it has, so a sample first shown before its item loaded stays half built.
 function Preview.ShowSample(tooltip, sample)
-	if sample.durability or sample.setPieces then
+	if sample.durability or sample.setPieces or sample.own or sample.requirementsMet then
 		tooltip:ProcessInfo({ getterFunction = function() return SampleData(sample) end })
 	else
 		tooltip:SetItemByID(sample.id)
@@ -151,7 +193,7 @@ function Preview.Create(parent, raw)
 		ns.Style.WatchHealthBar(tooltip.StatusBar)
 	end
 	-- GameTooltipTemplate answers TOOLTIP_DATA_UPDATE by asking for a refresh on its next update, but only the game's
-	-- own tooltips have the OnUpdate that does it; without this a preview never caught up with item data that arrived
+	-- own tooltips have the OnUpdate that does it; without this a preview never catches up with item data that arrives
 	-- after it was first drawn.
 	tooltip:SetScript("OnUpdate", function(self)
 		if self.shouldRefreshData then self:RefreshData() end
@@ -170,9 +212,9 @@ end
 
 -- An opaque backing inside each preview, exactly under its background. Forever's tooltip background art is only 76%
 -- opaque (alpha 195 of 255 in Tooltip-NineSlice-Center), so a tooltip always shows a quarter of what's behind it; over
--- the options panel that's the panel, which made the previews' background look wrong (15 Nov). The backing is a flat,
+-- the options panel that's the panel, which makes the previews' background look wrong. The backing is a flat,
 -- mid-toned Forever brown: the hue of the game's own inset frame art (common-insideframe), as bright as an average
--- outdoor scene (mean brightness 0.31, measured on Hyjal's loading screen). It sits on the tooltip's NineSlice, the
+-- outdoor scene (mean brightness 0.31). It sits on the tooltip's NineSlice, the
 -- same size as its Center piece and drawn just beneath it, so it covers exactly the area the game's own background
 -- does and the border's corners draw over it as they do over the background. A chosen background transparency still
 -- shows.

@@ -1,5 +1,5 @@
 <Bindings>
-	<!-- The sources column (design document 4.2), unbound until the player picks a key. -->
+	<!-- The sources column, unbound until the player picks a key. -->
 	<Binding name="CLEANTOOLTIPS_SOURCES" category="ADDONS">
 		CleanTooltips_ToggleSources()
 	</Binding>

@@ -1,7 +1,7 @@
 local _, ns = ...
 local L = ns.L
 
--- The sources column (design document 4.2): a thin column on the tooltip's right edge, outside it, naming the addon
+-- The sources column: a thin column on the tooltip's right edge, outside it, naming the addon
 -- beside each line an addon added. The tooltip itself isn't touched, so its layout is what the player sees without
 -- the column. Lines the game added show nothing. Lines CT removed are listed under the tooltip's lines, struck
 -- through, so the player sees what's being taken out.
@@ -51,7 +51,7 @@ end
 local function Label(folder) return ns.Sources.Label(folder, 0) end
 
 local function LineText(record, index)
-	local text = record.left[index] or record.right[index]
+	local text = record.written[index] or record.left[index] or record.right[index] -- as written into, if it was
 	return ns.PlainText(text) or ""
 end
 
@@ -67,7 +67,8 @@ local function Describe(record, index)
 end
 
 local function Readable(value)
-	return type(value) == "number" and not ns.IsSecret(value) and value or nil
+	value = ns.Readable(value)
+	return type(value) == "number" and value or nil
 end
 
 -- The column drawn for a tooltip, if any (the Sources page sizes its scrolling region to include it).
@@ -146,11 +147,14 @@ local function Update(tooltip)
 	View.Draw(tooltip, ns.Sources.Record(tooltip), false)
 end
 
+local UpdateHook = ns.Guarded("sources column", Update)
+local HideHook = ns.Guarded("sources column", function(tooltip) View.Hide(tooltip) end)
+
 local function Hook(tooltip)
 	if hooked[tooltip] then return end
 	hooked[tooltip] = true
-	hooksecurefunc(tooltip, "Show", Update)
-	tooltip:HookScript("OnHide", View.Hide)
+	hooksecurefunc(tooltip, "Show", UpdateHook)
+	tooltip:HookScript("OnHide", HideHook)
 end
 
 local function HookNamed()
@@ -173,7 +177,7 @@ ns.Listen("SETTINGS_CHANGED", function(what)
 	if what == nil or what == "showSources" then Redraw() end
 end)
 
--- The key binding and /ctt sources (design document 4.2, 5).
+-- The key binding and /ctt sources.
 function ns.ToggleSources()
 	if not ns.profile then return end
 	ns.profile.showSources = not ns.profile.showSources

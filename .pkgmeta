@@ -9,3 +9,12 @@ externals:
   libs/AceDB-3.0: https://repos.wowace.com/wow/ace3/trunk/AceDB-3.0
   libs/AceLocale-3.0: https://repos.wowace.com/wow/ace3/trunk/AceLocale-3.0
   libs/LibSharedMedia-3.0: https://repos.wowace.com/wow/libsharedmedia-3-0/trunk/LibSharedMedia-3.0
+
+# The development commands: the TOC leaves them out with #@do-not-package@, and this keeps the file out of the zip.
+ignore:
+  - Dev.lua
+
+# The release notes on CurseForge and GitHub, instead of a list of commit messages.
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown

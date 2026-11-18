@@ -1,239 +1,68 @@
 local _, ns = ...
 local L = ns.L
 
--- Options > AddOns > Clean Tooltips (design document 5). Clean-up, Look and Sources are canvas pages, CT's own frames,
--- so each can show live preview tooltips beside its options; Profiles is a list page built with the game's own
--- Settings controls. Every option applies at once, to the previews and to tooltips already shown. The Defaults button
--- resets the page shown. Removal rules are the player's own list, not settings, so Defaults leaves them alone (Reset
--- Profile clears them).
+-- Options > AddOns > Clean Tooltips. Clean-up, Look and Sources are canvas pages, CT's own frames,
+-- so each can show live preview tooltips beside its options; Profiles (Profiles.lua) is a canvas page too. The pages'
+-- widgets are in OptionsWidgets.lua, and each page is built the first time it's shown. Every option applies at once,
+-- to the previews and to tooltips already shown. The Defaults button resets the page shown. Removal rules are the
+-- player's own list, not settings, so Defaults leaves them alone (Reset Profile clears them).
 --   ns.Options.Open(page)   page: nil (Clean-up), "look", "sources", "last" (Sources on the last tooltip), "profiles"
 
 ns.Options = {}
 local Options = ns.Options
 
-local TITLE = "Clean Tooltips"
-local POPUP_PREFIX = "CLEANTOOLTIPS_"
-local NAME_LETTERS = 32
+local Kit = ns.OptionsKit -- OptionsWidgets.lua
+local TITLE, LEFT, TOP, ROW, INDENT, LABEL_WIDTH = Kit.TITLE, Kit.LEFT, Kit.TOP, Kit.ROW, Kit.INDENT, Kit.LABEL_WIDTH
+local RefuseInCombat, AddTip, Text, Check, ClickSound = Kit.RefuseInCombat, Kit.AddTip, Kit.Text, Kit.Check,
+	Kit.ClickSound
+local NewPage, FieldCheck, Dropdown, DefaultsOf = Kit.NewPage, Kit.FieldCheck, Kit.Dropdown, Kit.DefaultsOf
+local Readable = ns.Readable
 
-local LEFT = 16          -- the pages' left margin
-local TOP = -56          -- the first row, under the page's title
-local ROW = 28           -- one checkbox row
-local INDENT = 24        -- a checkbox that depends on the one above
-local LABEL_WIDTH = 150  -- a dropdown's or swatch's label, before its control
 local PREVIEW_X = 330    -- the Look page's previews, right of its options
-local LIST_WIDTH = 240   -- the Sources page's list; the current tooltip is to the right
-local ADVICE_WIDTH = 600 -- the Sources page's advice note, across the page
-local MENU_HEIGHT = 320  -- long dropdown menus scroll past this
+local CLEANUP_COLUMN = 300 -- the Clean-up page's second column of options, from its first
+local COLUMN_GAP = 24    -- between the Sources page's two columns of options
+local MIN_COLUMN = 220   -- narrowest a column of options gets before the list stays in one
+local MIN_LIST = 300     -- the Sources page's list is never narrower (the page's width unknown yet)
 
 local categories = {}    -- [page key] = the Settings category
-local pages = {}         -- every canvas page
-local sourcesMode = "addons"
+local sourcesMode = "last" -- the Sources page opens on the current tooltip
 
--- Refusing in combat --------------------------------------------------------------------------------------------------
--- The game's options panel isn't safe to open from addon code in combat.
-
-local function RefuseInCombat()
-	if not ns.InCombat() then return false end
-	local text = ERR_NOT_IN_COMBAT or L.OPT_IN_COMBAT
-	if UIErrorsFrame and UIErrorsFrame.AddExternalErrorMessage then
-		UIErrorsFrame:AddExternalErrorMessage(text)
-	else
-		ns.Print(text)
-	end
-	return true
-end
-
--- Widgets --------------------------------------------------------------------------------------------------------------
-
-local function ShowTip(owner, title, text)
-	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-	GameTooltip_SetTitle(GameTooltip, title)
-	GameTooltip_AddNormalLine(GameTooltip, text, true)
-	GameTooltip:Show()
-end
-
-local function HideTip()
-	GameTooltip:Hide()
-end
-
--- Only options with something to add get a tooltip: a bare repeat of the label tells nothing.
-local function AddTip(frame, title, text)
-	if not text then return end
-	frame:SetScript("OnEnter", function(self) ShowTip(self, title, text) end)
-	frame:SetScript("OnLeave", HideTip)
-end
-
-local function Text(parent, font, text)
-	local fontString = parent:CreateFontString(nil, "ARTWORK", font)
-	fontString:SetJustifyH("LEFT")
-	if text then fontString:SetText(text) end
-	return fontString
-end
-
-local function Check(parent, text, tip)
-	local check = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-	check:SetSize(26, 26)
-	local label = rawget(check, "Text")
-	if not label then
-		label = check:CreateFontString(nil, "ARTWORK")
-		label:SetPoint("LEFT", check, "RIGHT", 2, 0)
-	end
-	label:SetFontObject(GameFontHighlight)
-	label:SetJustifyH("LEFT")
-	check.label = label
-	function check:SetLabel(newText)
-		label:SetText(newText)
-		self:SetHitRectInsets(0, -math.min(label:GetUnboundedStringWidth(), 400), 0, 0)
-	end
-	function check:SetActive(on)
-		self:SetEnabled(on)
-		label:SetFontObject(on and GameFontHighlight or GameFontDisable)
-	end
-	check:SetLabel(text or "")
-	AddTip(check, text, tip)
-	return check
-end
-
-local function ClickSound(checked)
-	PlaySound(checked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
-end
-
--- A page scrolls: everything on it (options and preview tooltips) is built on `page`, the scroll child, which grows to
--- fit whatever reaches lowest, so a tall preview never runs off the panel. `page.canvas` is the frame registered with
--- the Settings panel.
-local SCROLLBAR_GAP = 26 -- room for the scroll bar, right of the page
-local FIT_MARGIN = 16    -- below the lowest thing on the page
-
-local function NewPage(title)
-	local canvas = CreateFrame("Frame")
-	canvas:Hide()
-	local scroll = CreateFrame("ScrollFrame", nil, canvas, "ScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT")
-	scroll:SetPoint("BOTTOMRIGHT", -SCROLLBAR_GAP, 0)
-	if scroll.ScrollBar and scroll.ScrollBar.SetHideIfUnscrollable then scroll.ScrollBar:SetHideIfUnscrollable(true) end
-	local page = CreateFrame("Frame", nil, scroll)
-	page:SetSize(1, 1)
-	scroll:SetScrollChild(page)
-	page.canvas, page.scroll, canvas.page = canvas, scroll, page
-	page.refreshers = {}
-	local heading = Text(page, "GameFontHighlightHuge", title)
-	heading:SetPoint("TOPLEFT", 7, -16)
-
-	-- As tall as the lowest thing on it, and never shorter than the visible area. Once a frame, however often asked.
-	local fitQueued = false
-	local function Fit()
-		fitQueued = false
-		local top = page:GetTop()
-		if not top then return end
-		local lowest = top
-		local function Consider(thing)
-			if thing:IsShown() then
-				local bottom = thing:GetBottom()
-				if bottom and bottom < lowest then lowest = bottom end
-			end
-		end
-		for _, child in ipairs({ page:GetChildren() }) do Consider(child) end
-		for _, region in ipairs({ page:GetRegions() }) do Consider(region) end
-		page:SetHeight(math.max(top - lowest + FIT_MARGIN, scroll:GetHeight() or 1))
-	end
-	function page:FitHeight()
-		if fitQueued then return end
-		fitQueued = true
-		C_Timer.After(0, Fit)
-	end
-	scroll:SetScript("OnSizeChanged", function(_, width)
-		page:SetWidth(width)
-		page:FitHeight()
-	end)
-
-	function page:Refresh()
-		if not ns.profile then return end
-		for _, refresh in ipairs(self.refreshers) do refresh() end
-		local draw = rawget(self, "Draw") -- the pages with previews have one; Profiles doesn't
-		if draw then ns.SafeCall("preview", draw, self) end
-		self:FitHeight()
-	end
-	-- The Settings panel calls these on the registered frame.
-	canvas.OnRefresh = function() page:Refresh() end
-	canvas.OnDefault = function()
-		local default = rawget(page, "OnDefault")
-		if default then default(page) end
-	end
-	canvas:SetScript("OnShow", function() page:Refresh() end)
-	pages[#pages + 1] = page
-	return page
-end
-
--- A checkbox for one of the profile's true/false options.
-local function FieldCheck(page, field, text, tip, x, y)
-	local check = Check(page, text, tip)
-	check:SetPoint("TOPLEFT", x, y)
-	check:SetScript("OnClick", function(self)
-		local on = self:GetChecked() == true
-		ClickSound(on)
-		ns.profile[field] = on
-		ns.Changed(field)
-	end)
-	table.insert(page.refreshers, function() check:SetChecked(ns.profile[field] == true) end)
-	return check
-end
-
--- A labelled dropdown. choices() gives { { value, text }, ... }.
-local function Dropdown(page, labelText, width, choices, get, set, x, y)
-	local label = Text(page, "GameFontHighlight", labelText)
-	label:SetPoint("TOPLEFT", x, y - 7)
-	local dropdown = CreateFrame("DropdownButton", nil, page, "WowStyle1DropdownTemplate")
-	dropdown:SetPoint("TOPLEFT", x + LABEL_WIDTH, y)
-	dropdown:SetWidth(width)
-	dropdown:SetupMenu(function(_, root)
-		root:SetScrollMode(MENU_HEIGHT)
-		for _, choice in ipairs(choices()) do
-			root:CreateRadio(choice.text, function() return get() == choice.value end, function()
-				set(choice.value)
-			end)
-		end
-	end)
-	table.insert(page.refreshers, function() dropdown:GenerateMenu() end)
-	return dropdown
-end
-
-local function DefaultsOf(fields)
-	for _, field in ipairs(fields) do
-		local default = ns.PROFILE_DEFAULTS[field]
-		ns.profile[field] = type(default) == "table" and CopyTable(default) or default
-	end
-	ns.Changed(nil)
-end
-
--- Clean-up (design document 3.1 to 3.4) --------------------------------------------------------------------------------
+-- Clean-up -------------------------------------------------------------------------------------------------------------
 
 local CLEANUP_FIELDS = ns.CLEANUP_FIELDS -- Core.lua
 
-local function BuildCleanup()
-	local page = NewPage(TITLE)
-	local y = TOP
-	-- In the order the samples show them: the food (sell price, a level requirement met, its Use line and 1 second
-	-- cooldown), the potion (Use), the helm (Equip lines, durability), then the weapons (dps).
-	FieldCheck(page, "hideSellPrice", L.OPT_SELL_PRICE, L.OPT_SELL_PRICE_TIP, LEFT, y)
-	y = y - ROW
-	FieldCheck(page, "hideMetLevel", L.OPT_LEVEL, L.OPT_LEVEL_TIP, LEFT, y)
-	y = y - ROW
-	FieldCheck(page, "shortenUse", L.OPT_SHORTEN_USE, L.OPT_SHORTEN_USE_TIP, LEFT, y)
-	y = y - ROW
-	local oneSecond = FieldCheck(page, "hideSecondCooldown", L.OPT_HIDE_SECOND_COOLDOWN,
-		L.OPT_HIDE_SECOND_COOLDOWN_TIP, LEFT + INDENT, y)
-	table.insert(page.refreshers, function() oneSecond:SetActive(ns.profile.shortenUse == true) end)
-	y = y - ROW
-	FieldCheck(page, "shortenEquip", L.OPT_SHORTEN_EQUIP, L.OPT_SHORTEN_EQUIP_TIP, LEFT, y)
-	y = y - ROW
-	local noPrefix = FieldCheck(page, "dropEquipPrefix", L.OPT_DROP_EQUIP_PREFIX, L.OPT_DROP_EQUIP_PREFIX_TIP,
-		LEFT + INDENT, y)
+local function BuildCleanup(canvas)
+	local page = NewPage(TITLE, canvas)
+	-- Two columns, in the order the first samples show them (Preview.SAMPLES). Left, the lines hidden from items: sell
+	-- price, requirements met, "Soulbound", "Unique", durability, then dps. Right, the shortened Equip and Use lines with
+	-- the options that shape them, then the unit tooltip lines.
+	local left, right = TOP, TOP
+	local function Left(field, text, tip)
+		local check = FieldCheck(page, field, text, tip, LEFT, left)
+		left = left - ROW
+		return check
+	end
+	local function Right(field, text, tip, indent)
+		local check = FieldCheck(page, field, text, tip, LEFT + CLEANUP_COLUMN + (indent and INDENT or 0), right)
+		right = right - ROW
+		return check
+	end
+	Left("hideSellPrice", L.OPT_SELL_PRICE, L.OPT_SELL_PRICE_TIP)
+	Left("hideMetLevel", L.OPT_LEVEL, L.OPT_LEVEL_TIP)
+	Left("hideMetRequirements", L.OPT_MET_REQUIREMENTS, L.OPT_MET_REQUIREMENTS_TIP)
+	Left("hideSoulbound", L.OPT_SOULBOUND, L.OPT_SOULBOUND_TIP)
+	Left("hideUnique", L.OPT_UNIQUE, L.OPT_UNIQUE_TIP)
+	Left("hideDurability", L.OPT_DURABILITY, L.OPT_DURABILITY_TIP)
+	Left("shortenDps", L.OPT_SHORTEN_DPS, L.OPT_SHORTEN_DPS_TIP)
+	Right("shortenEquip", L.OPT_SHORTEN_EQUIP, L.OPT_SHORTEN_EQUIP_TIP)
+	local noPrefix = Right("dropEquipPrefix", L.OPT_DROP_EQUIP_PREFIX, L.OPT_DROP_EQUIP_PREFIX_TIP, true)
 	table.insert(page.refreshers, function() noPrefix:SetActive(ns.profile.shortenEquip == true) end)
-	y = y - ROW
-	FieldCheck(page, "hideDurability", L.OPT_DURABILITY, L.OPT_DURABILITY_TIP, LEFT, y)
-	y = y - ROW
-	FieldCheck(page, "shortenDps", L.OPT_SHORTEN_DPS, L.OPT_SHORTEN_DPS_TIP, LEFT, y)
-	y = y - ROW - 12
+	Right("shortenUse", L.OPT_SHORTEN_USE, L.OPT_SHORTEN_USE_TIP)
+	local oneSecond = Right("hideSecondCooldown", L.OPT_HIDE_SECOND_COOLDOWN, L.OPT_HIDE_SECOND_COOLDOWN_TIP, true)
+	table.insert(page.refreshers, function() oneSecond:SetActive(ns.profile.shortenUse == true) end)
+	Right("hideFaction", L.OPT_FACTION, L.OPT_FACTION_TIP)
+	Right("hidePvP", L.OPT_PVP, L.OPT_PVP_TIP)
+	local y = math.min(left, right) - 12
 
 	local sample = 1
 	Dropdown(page, L.OPT_SAMPLE, 200, function()
@@ -286,7 +115,7 @@ local function BuildCleanup()
 	return page
 end
 
--- Look (3.5 to 3.9) --------------------------------------------------------------------------------------------------
+-- Look ---------------------------------------------------------------------------------------------------------------
 
 local LOOK_FIELDS = { "classNames", "hostileRed", "borderClass", "borderReaction", "borderQuality", "healthBar", "font",
 	"background" }
@@ -341,10 +170,13 @@ local function BackgroundSwatch(page, y)
 	end
 	swatch:SetScript("OnClick", function()
 		local r, g, b, a = BackgroundColor()
+		-- Cancel puts back what was there: the game's own background stays the game's, not a colour that matches it.
+		local before = ns.profile.background
 		ColorPickerFrame:SetupColorPickerAndShow({
 			r = r, g = g, b = b, opacity = a, hasOpacity = true,
 			swatchFunc = Picked, opacityFunc = Picked,
 			cancelFunc = function(previous)
+				if type(before) ~= "table" then return SetBackground(false) end
 				SetBackground({ r = previous.r, g = previous.g, b = previous.b, a = previous.a })
 			end,
 		})
@@ -365,7 +197,7 @@ local function BackgroundSwatch(page, y)
 	end)
 end
 
--- Sample name lines for what can't be previewed with a real unit (design document 5): a hostile player and an NPC.
+-- Sample name lines for what can't be previewed with a real unit: a hostile player and an NPC.
 local function DrawSample(tooltip, page, anchor, text, color, borderColor)
 	ns.Preview.Place(tooltip, page, "TOPLEFT", anchor, "BOTTOMLEFT", 0, -12)
 	tooltip:SetText(text, color.r, color.g, color.b)
@@ -373,8 +205,8 @@ local function DrawSample(tooltip, page, anchor, text, color, borderColor)
 	ns.Style.SetBorder(tooltip, borderColor)
 end
 
-local function BuildLook()
-	local page = NewPage(L.PAGE_LOOK)
+local function BuildLook(canvas)
+	local page = NewPage(L.PAGE_LOOK, canvas)
 	local y = TOP
 	FieldCheck(page, "classNames", L.OPT_CLASS_NAMES, L.OPT_CLASS_NAMES_TIP, LEFT, y)
 	y = y - ROW
@@ -415,8 +247,8 @@ local function BuildLook()
 		ns.Preview.Place(item, self, "TOPLEFT", player, "BOTTOMLEFT", 0, -12)
 		item:SetItemByID(ns.Preview.LOOK_ITEM)
 
-		local _, class = UnitClass("player")
-		local classColor = class and C_ClassColor.GetClassColor(class) or HIGHLIGHT_FONT_COLOR
+		-- The sample hostile player is a shaman, whatever the player's class.
+		local classColor = C_ClassColor.GetClassColor("SHAMAN") or HIGHLIGHT_FONT_COLOR
 		local red = FACTION_BAR_COLORS[2]
 		local nameColor = (profile.classNames and not profile.hostileRed) and classColor or red
 		DrawSample(hostilePlayer, self, item, L.SAMPLE_HOSTILE_PLAYER, nameColor,
@@ -428,11 +260,20 @@ local function BuildLook()
 	return page
 end
 
--- Sources (4.2, 4.3) ---------------------------------------------------------------------------------------------------
+-- Sources --------------------------------------------------------------------------------------------------------------
 -- A list of every addon seen adding tooltip lines this session (and any with a rule), each with "hide every line" and
 -- its recent lines; or the last tooltip, line by line. Beside it, the last tooltip with the sources column.
 
 local function Label(folder) return ns.Sources.Label(folder, 16) end
+
+-- The tooltip types a line has been seen on, for its rule (Remove.SetLine): the types listed for it, and the type of
+-- the tooltip it's on now.
+local function LineTypes(folder, text, typeName)
+	local types = {}
+	for name in pairs(ns.Sources.LineTypes(folder, text) or {}) do types[name] = true end
+	if typeName then types[typeName] = true end
+	return types
+end
 
 local function SortedFolders()
 	local folders, added = {}, {}
@@ -445,6 +286,7 @@ local function SortedFolders()
 	for folder in pairs(ns.Sources.Seen()) do Add(folder) end
 	for folder in pairs(ns.profile.hideAddon) do Add(folder) end
 	for folder in pairs(ns.profile.hideLine) do Add(folder) end
+	for folder in pairs(ns.profile.hideWritten) do Add(folder) end
 	for folder in pairs(ns.Remove.KnownAddons()) do
 		if C_AddOns.IsAddOnLoaded(folder) then Add(folder) end
 	end
@@ -452,7 +294,17 @@ local function SortedFolders()
 	return folders
 end
 
--- Row specs: { kind = "header" | "check" | "note", text, note, checked, active, indent, click }.
+-- Row specs: { kind = "header" | "check" | "line" | "note", text, note, checked, active, indent, click, toggle, tip }.
+-- A heading's `toggle` ({ checked, click }) is its addon's "Hide everything", inline after its name; hovering it shows
+-- the page's advice (it's better to turn a line off in its own addon). `tip` ({ title, text }) is shown when the row's
+-- tick box or text is hovered.
+
+-- An addon's heading, with "Hide everything" on the same line.
+local function AddonHeader(folder)
+	return { kind = "header", text = Label(folder), toggle = { checked = ns.Remove.IsAddonHidden(folder),
+		click = function(on) ns.Remove.SetAddon(folder, on) end } }
+end
+
 local function AddonRows()
 	local rows = {}
 	local seen = ns.Sources.Seen()
@@ -463,9 +315,7 @@ local function AddonRows()
 	end
 	for _, folder in ipairs(folders) do
 		local hideAll = ns.Remove.IsAddonHidden(folder)
-		rows[#rows + 1] = { kind = "header", text = Label(folder) }
-		rows[#rows + 1] = { kind = "check", text = L.SOURCES_HIDE_ADDON, checked = hideAll, active = true,
-			click = function(on) ns.Remove.SetAddon(folder, on) end }
+		rows[#rows + 1] = AddonHeader(folder)
 		for _, entry in ipairs(ns.Remove.Known(folder) or {}) do
 			if entry.match then
 				rows[#rows + 1] = { kind = "check", text = entry.label, note = entry.hint, indent = true,
@@ -485,46 +335,88 @@ local function AddonRows()
 		end
 		for _, text in ipairs(lines) do
 			if not ns.Remove.IsKnownLine(folder, text) then
-				rows[#rows + 1] = { kind = "check", text = ns.PlainText(text) or "", indent = true,
+				-- With its icons, as the tooltip showed it; only its colours go.
+				rows[#rows + 1] = { kind = "check", text = ns.WithIcons(text) or "", indent = true,
 					checked = hideAll or ns.Remove.IsLineHidden(folder, text), active = not hideAll,
-					click = function(on) ns.Remove.SetLine(folder, text, on) end }
+					click = function(on) ns.Remove.SetLine(folder, text, on, LineTypes(folder, text)) end }
+			end
+		end
+		-- Lines it adds blank and then writes into, hidden from the current tooltip (Remove.SetWritten), so they can be
+		-- shown again here. Unticking drops the rule, so the row goes when the page is drawn again.
+		local written = ns.Remove.WrittenRules(folder)
+		if written then
+			local sites = {}
+			for site in pairs(written) do sites[#sites + 1] = site end
+			table.sort(sites)
+			for _, site in ipairs(sites) do
+				local rule = written[site]
+				rows[#rows + 1] = { kind = "check", text = rule.label, indent = true, checked = true,
+					active = not hideAll,
+					click = function(on) ns.Remove.SetWritten(folder, site, rule.label, on, rule.types) end }
 			end
 		end
 	end
 	return rows
 end
 
+-- The current tooltip's addon lines, in the order the tooltip shows them, each with a tick box whose tooltip names the
+-- addon that added it, with its icon; no headings and no "Hide everything" here (that's on All addons). The game's lines aren't listed (there's nothing to do with them). Blank lines have no rule of their own, as
+-- they go with the addon's lines beside them, so they aren't listed. A line its addon added blank and then wrote
+-- into (Leatrix Plus's "Target: <name>") is listed as written, and its tick box goes by where the addon adds it
+-- (Remove.SetWritten), as its text changes with every target; without a readable call site it has no tick box.
 local function LastRows()
 	local record = ns.Sources.Current()
 	if not record then return { { kind = "note", text = L.SOURCES_LAST_EMPTY } } end
+	local typeName = record.typeName -- now: records are reused, so the click mustn't read it later
 	local rows = {}
 	for index = 1, record.n do
 		local source = record.source[index]
-		local raw = record.left[index] or record.right[index]
-		local text = raw and ns.PlainText(raw) or L.SOURCES_UNREADABLE
 		if source and source ~= ns.Sources.GAME then
 			local hideAll = ns.Remove.IsAddonHidden(source)
-			local known = raw and ns.Remove.IsKnownLine(source, raw)
-			local row = { kind = "check", text = text, note = Label(source), active = raw ~= nil and not hideAll }
-			if known then
-				row.checked = hideAll or ns.Remove.IsKnownOn(known.id)
-				row.click = function(on) ns.Remove.SetKnown(known.id, on) end
+			local tip = { title = Label(source) }
+			local raw = record.left[index] or record.right[index]
+			if raw ~= nil and ns.Sources.IsBlank(raw) then
+				-- As written (kept even once it's hidden), else as shown.
+				local shown = record.written[index] or record.finalLeft[index] or record.finalRight[index]
+				local site = record.site[index]
+				if shown and not ns.Sources.IsBlank(shown) then
+					local row = { kind = site and "check" or "line", text = ns.WithIcons(shown) or L.SOURCES_UNREADABLE,
+						tip = tip }
+					if site then
+						local types = typeName and { [typeName] = true } or nil
+						row.active = not hideAll
+						row.checked = hideAll or ns.Remove.IsWrittenHidden(source, site)
+						row.click = function(on) ns.Remove.SetWritten(source, site, shown, on, types) end
+					end
+					rows[#rows + 1] = row
+				end
 			else
-				row.checked = hideAll or (raw ~= nil and ns.Remove.IsLineHidden(source, raw))
-				row.click = function(on) ns.Remove.SetLine(source, raw, on) end
+				local known = raw and ns.Remove.IsKnownLine(source, raw)
+				-- With its icons, as the tooltip showed it; only its colours go.
+				local row = { kind = "check", text = raw and ns.WithIcons(raw) or L.SOURCES_UNREADABLE, tip = tip,
+					active = raw ~= nil and not hideAll }
+				if known then
+					tip.text = known.hint
+					row.checked = hideAll or ns.Remove.IsKnownOn(known.id)
+					row.click = function(on) ns.Remove.SetKnown(known.id, on) end
+				else
+					row.checked = hideAll or (raw ~= nil and ns.Remove.IsLineHidden(source, raw))
+					row.click = function(on) ns.Remove.SetLine(source, raw, on, LineTypes(source, raw, typeName)) end
+				end
+				rows[#rows + 1] = row
 			end
-			rows[#rows + 1] = row
-		else
-			rows[#rows + 1] = { kind = "note", text = text, indent = true }
 		end
 	end
+	if #rows == 0 then rows[1] = { kind = "note", text = L.SOURCES_LAST_NONE } end
 	return rows
 end
+Options.LastRows = LastRows
+Options.AddonRows = AddonRows
 
 local function ListRow(list, index)
 	local row = list.rows[index]
 	if row then return row end
-	row = CreateFrame("Frame", nil, list.child)
+	row = CreateFrame("Frame", nil, list.frame)
 	row.check = Check(row, "")
 	row.check.label:SetText("")
 	row.check:SetPoint("TOPLEFT", 0, -2)
@@ -541,53 +433,124 @@ local function ListRow(list, index)
 	return row
 end
 
-local function DrawList(list, specs)
-	local width = LIST_WIDTH - 24
-	local y = 0
-	for index, spec in ipairs(specs) do
-		local row = ListRow(list, index)
-		local x = spec.indent and INDENT or 0
-		row:ClearAllPoints()
-		row:SetPoint("TOPLEFT", list.child, "TOPLEFT", 0, -y)
-		row:SetWidth(width)
-		row.click = spec.click
-		row.check:SetShown(spec.kind == "check")
-		row.check:ClearAllPoints()
-		row.check:SetPoint("TOPLEFT", x, -2)
-		local textX = spec.kind == "check" and x + 28 or x
-		row.text:ClearAllPoints()
-		row.text:SetPoint("TOPLEFT", textX, -7)
-		row.text:SetWidth(width - textX)
-		row.text:SetFontObject(spec.kind == "header" and GameFontNormal
-			or (spec.kind == "note" and GameFontDisable) or GameFontHighlight)
-		row.text:SetText(spec.text or "")
-		if spec.kind == "check" then
-			row.check:SetChecked(spec.checked == true)
-			row.check:SetActive(spec.active ~= false)
-			if spec.active == false then row.text:SetFontObject(GameFontDisable) end
-		end
-		local height = row.text:GetStringHeight() + 12
-		row.note:ClearAllPoints()
-		if spec.note then
-			row.note:SetPoint("TOPLEFT", row.text, "BOTTOMLEFT", 0, -2)
-			row.note:SetWidth(width - textX)
-			row.note:SetText(spec.note)
-			row.note:Show()
-			height = height + row.note:GetStringHeight() + 2
-		else
-			row.note:Hide()
-		end
-		if spec.kind == "header" and index > 1 then height = height + 4 end
-		row:SetHeight(math.max(height, spec.kind == "check" and 30 or 20))
-		row:Show()
-		y = y + row:GetHeight()
-	end
-	for index = #specs + 1, #list.rows do list.rows[index]:Hide() end
-	list.child:SetSize(width, math.max(y, 1))
+-- "Hide everything" explains the page when hovered: it's better to turn a line off in its own addon.
+local function ShowAdvice(owner)
+	Kit.ShowTip(owner, L.SOURCES_HIDE_ADDON, L.SOURCES_ADVICE)
 end
 
--- The last tooltip redrawn in a preview, with the sources column beside it. Lines the current rules would remove are
--- kept in the preview and struck through in the column.
+-- A row's own tooltip (its spec's `tip`): the addon that added the line, with its icon, and a note if there is one.
+local function ShowRowTip(check)
+	local tip = check.tip
+	if tip then Kit.ShowTip(check, tip.title, tip.text) end
+end
+
+-- Fills row `index` for `spec` at `width` (its text wraps to it) and gives its height.
+local function FillRow(list, index, spec, width)
+	local row = ListRow(list, index)
+	local x = spec.indent and INDENT or 0
+	local toggle = spec.kind == "header" and spec.toggle or nil
+	row:SetWidth(width)
+	row.click = toggle and toggle.click or spec.click
+	row.check:SetShown(spec.kind == "check" or toggle ~= nil)
+	row.check:SetLabel("") -- "Hide everything" is the box alone (its tooltip says what it is)
+	row.check.tip = spec.tip
+	row.check:SetScript("OnEnter", toggle and ShowAdvice or (spec.tip and ShowRowTip) or nil)
+	row.check:SetScript("OnLeave", (toggle or spec.tip) and Kit.HideTip or nil)
+	-- A "line" row (an addon line with no tick box) lines up with the ticked ones' text. A heading's "Hide everything"
+	-- box comes before the addon's name, spaced as any tick box.
+	local textX = (spec.kind == "check" or spec.kind == "line" or toggle) and x + 28 or x
+	row.text:ClearAllPoints()
+	row.text:SetPoint("TOPLEFT", textX, -7)
+	row.text:SetFontObject(spec.kind == "header" and GameFontNormal
+		or (spec.kind == "note" and GameFontDisable) or GameFontHighlight)
+	row.text:SetText(spec.text or "")
+	row.check:ClearAllPoints()
+	row.check:SetPoint("TOPLEFT", x, -2)
+	if toggle then
+		row.check:SetChecked(toggle.checked == true)
+		row.check:SetActive(true)
+	end
+	row.text:SetWidth(width - textX)
+	if spec.kind == "check" and spec.tip then
+		-- Hovering (and clicking) the line's text works as its tick box, so its tooltip is easy to reach.
+		row.check:SetHitRectInsets(0, -math.min(row.text:GetUnboundedStringWidth() + 4, width - 28), 0, 0)
+	end
+	if spec.kind == "check" then
+		row.check:SetChecked(spec.checked == true)
+		row.check:SetActive(spec.active ~= false)
+		if spec.active == false then row.text:SetFontObject(GameFontDisable) end
+	end
+	local height = row.text:GetStringHeight() + 12
+	row.note:ClearAllPoints()
+	if spec.note then
+		row.note:SetPoint("TOPLEFT", row.text, "BOTTOMLEFT", 0, -2)
+		row.note:SetWidth(width - textX)
+		row.note:SetText(spec.note)
+		row.note:Show()
+		height = height + row.note:GetStringHeight() + 2
+	else
+		row.note:Hide()
+	end
+	if spec.kind == "header" and index > 1 then height = height + 4 end
+	height = math.max(height, (spec.kind == "check" or toggle) and 30 or 20)
+	row:SetHeight(height)
+	return height
+end
+
+-- Lays the rows out `width` wide: one column, or two when one would be taller than `available` (nil: not known yet)
+-- and there's room for two. The second column starts at the addon heading nearest half way, so an addon's lines stay
+-- together (any row when there's no heading). Returns the list's height.
+local function DrawList(list, specs, width, available)
+	local function Measure(columnWidth)
+		local heights, total = {}, 0
+		for index, spec in ipairs(specs) do
+			heights[index] = FillRow(list, index, spec, columnWidth)
+			total = total + heights[index]
+		end
+		return heights, total
+	end
+	local columnWidth = width
+	local heights, total = Measure(width)
+	local second = #specs + 1 -- the first row of the second column
+	local half = math.floor((width - COLUMN_GAP) / 2)
+	if available and total > available and half >= MIN_COLUMN and #specs > 1 then
+		columnWidth = half
+		heights, total = Measure(half)
+		local best, bestGap, y = nil, math.huge, 0
+		for index = 2, #specs do
+			y = y + heights[index - 1]
+			if specs[index].kind == "header" and math.abs(y - total / 2) < bestGap then
+				best, bestGap = index, math.abs(y - total / 2)
+			end
+		end
+		if not best then
+			y = 0
+			for index = 1, #specs - 1 do
+				y = y + heights[index]
+				if y >= total / 2 then
+					best = index + 1
+					break
+				end
+			end
+		end
+		second = best or second
+	end
+	local x, y, tallest = 0, 0, 0
+	for index = 1, #specs do
+		if index == second then x, y = columnWidth + COLUMN_GAP, 0 end
+		local row = list.rows[index]
+		row:ClearAllPoints()
+		row:SetPoint("TOPLEFT", list.frame, "TOPLEFT", x, -y)
+		row:Show()
+		y = y + heights[index]
+		tallest = math.max(tallest, y)
+	end
+	for index = #specs + 1, #list.rows do list.rows[index]:Hide() end
+	list.columns = second <= #specs and 2 or 1
+	list.frame:SetSize(width, math.max(1, tallest))
+	return tallest
+end
+
 -- The current tooltip as the player saw it (Sources.lua's snapshot): Clean Tooltips' changes and other addons' lines
 -- included, removed lines left out and listed under it in the sources column, its border and background colours.
 -- Removal rules ticked since are applied at once. Lines are matched to rules by their text as added.
@@ -605,7 +568,8 @@ local function DrawCurrentTooltip(tooltip, page, anchor)
 	for index = 1, record.n do
 		local source, original = record.source[index], record.left[index] or record.right[index]
 		local removed = record.hidden[index]
-			or (source and source ~= ns.Sources.GAME and ns.Remove.ShouldHide(source, original))
+			or (source and source ~= ns.Sources.GAME and (ns.Remove.ShouldHide(source, original)
+				or (record.written[index] ~= nil and ns.Remove.IsWrittenHidden(source, record.site[index]))))
 		local snapped = record.finalShown[index] ~= nil
 		if removed then
 			view.hidden[index] = true
@@ -621,12 +585,14 @@ local function DrawCurrentTooltip(tooltip, page, anchor)
 				if snapped then rr, rg, rb = record.frr[index], record.frg[index], record.frb[index] end
 				tooltip:AddDoubleLine(left or "", right, lr, lg, lb, rr or 1, rg or 1, rb or 1)
 			else
-				tooltip:AddLine(left, lr, lg, lb)
+				-- Wrapped where the real one wrapped, so the copy is as wide as it was.
+				tooltip:AddLine(left, lr, lg, lb, record.finalWrap[index] == true)
 			end
 			shown = shown + 1
 			view.lineIndex[index] = shown
 		end
 	end
+	tooltip:SetMinimumWidth(record.minWidth or 0)
 	tooltip:Show()
 	local nineSlice = tooltip.NineSlice
 	if nineSlice then
@@ -641,40 +607,31 @@ local function DrawCurrentTooltip(tooltip, page, anchor)
 	ns.SourcesView.Draw(tooltip, view, false)
 end
 
-local function BuildSources()
-	local page = NewPage(L.PAGE_SOURCES)
+local function BuildSources(canvas)
+	local page = NewPage(L.PAGE_SOURCES, canvas)
 	local y = TOP
-	-- Removing lines here is the fallback: the addon's own setting is the better way.
-	local advice = Text(page, "GameFontHighlight", L.SOURCES_ADVICE)
-	advice:SetPoint("TOPLEFT", LEFT, y)
-	advice:SetWidth(ADVICE_WIDTH)
-	advice:SetJustifyH("LEFT")
-	advice:SetWordWrap(true)
-	y = y - 44
 	FieldCheck(page, "showSources", L.OPT_SHOW_SOURCES, L.OPT_SHOW_SOURCES_TIP, LEFT, y)
 	y = y - ROW - 8
 	Dropdown(page, L.OPT_SOURCES_LIST, 160, function()
-		return { { value = "addons", text = L.SOURCES_MODE_ADDONS }, { value = "last", text = L.SOURCES_MODE_LAST } }
+		return { { value = "last", text = L.SOURCES_MODE_LAST }, { value = "addons", text = L.SOURCES_MODE_ADDONS } }
 	end, function() return sourcesMode end, function(value)
 		sourcesMode = value
 		page:Draw()
 	end, LEFT, y)
 	y = y - ROW - 10
+	local top = y -- where the current tooltip (Current tooltip) or the list (All addons) starts
+	local BOTTOM = 16 -- below everything, inside the visible page
 
-	local scroll = CreateFrame("ScrollFrame", nil, page, "ScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", LEFT, y)
-	scroll:SetPoint("BOTTOMLEFT", LEFT, 16)
-	scroll:SetWidth(LIST_WIDTH)
-	local list = { rows = {}, child = CreateFrame("Frame", nil, scroll) }
-	list.child:SetSize(LIST_WIDTH - 24, 1)
-	scroll:SetScrollChild(list.child)
+	-- The list of options: under the current tooltip, or straight under the controls for All addons. The page scrolls.
+	local list = { rows = {}, frame = CreateFrame("Frame", nil, page) }
+	list.frame:SetSize(1, 1)
 
-	-- The current tooltip and its sources column, in a region right of the list that scrolls sideways when they're
-	-- wider than it (a long line, a wide column): a slider under it, and the mouse wheel over it, while there's
-	-- anything to scroll.
+	-- Current tooltip: the tooltip and its sources column on top, in a region at least half the page's height below the
+	-- controls that scrolls sideways when they're wider than it (a long line, a wide column): a slider under it, and the
+	-- mouse wheel over it, while there's anything to scroll.
 	local viewport = CreateFrame("ScrollFrame", nil, page)
-	viewport:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 30, 0)
-	viewport:SetPoint("RIGHT", page, "RIGHT", -8, 0)
+	viewport:SetPoint("TOPLEFT", LEFT, top)
+	viewport:SetPoint("TOPRIGHT", page, "TOPRIGHT", -8, top)
 	viewport:SetHeight(1)
 	local stage = CreateFrame("Frame", nil, viewport)
 	stage:SetSize(1, 1)
@@ -696,227 +653,92 @@ local function BuildSources()
 	local SCROLL_STEP = 40 -- pixels a wheel notch moves
 	local range = 0
 	viewport:SetScript("OnMouseWheel", function(_, delta)
-		slider:SetValue(math.max(0, math.min(range, viewport:GetHorizontalScroll() - delta * SCROLL_STEP)))
+		local scrolled = Readable(viewport:GetHorizontalScroll()) or 0
+		slider:SetValue(math.max(0, math.min(range, scrolled - delta * SCROLL_STEP)))
 	end)
 
-	-- Sizes the region to the tooltip and its column once they're laid out, and shows the slider if they're wider.
+	-- The page's visible height below the controls; nil until the panel has laid the page out.
+	local function Remaining()
+		local visible = Readable(page.scroll:GetHeight())
+		if not visible or visible <= 1 then return nil end
+		return math.max(0, visible + top - BOTTOM)
+	end
+
+	-- Puts the list under the tooltip region (or the controls) and lays it out in one or two columns for the room left.
+	local function Layout()
+		local listTop = top
+		if sourcesMode == "last" and viewport:IsShown() then
+			listTop = top - (Readable(viewport:GetHeight()) or 1) - (slider:IsShown() and 32 or 12)
+		end
+		list.frame:ClearAllPoints()
+		list.frame:SetPoint("TOPLEFT", LEFT, listTop)
+		local width = math.max(MIN_LIST, (Readable(page:GetWidth()) or 0) - LEFT - 8)
+		local remaining = Remaining()
+		DrawList(list, list.specs or {}, width, remaining and remaining - (top - listTop))
+		page:FitHeight()
+	end
+
+	-- Sizes the region to the tooltip and its column once they're laid out (at least half the room below the controls),
+	-- and shows the slider if they're wider.
 	local function FitView()
-		local left, top = stage:GetLeft(), stage:GetTop()
-		local right, bottom = preview:GetRight(), preview:GetBottom()
-		if not (left and top and right and bottom) or not preview:IsShown() then
+		-- Any position the game keeps secret counts as not laid out (the preview's text is never secret, but be safe).
+		local left, regionTop = Readable(stage:GetLeft()), Readable(stage:GetTop())
+		local right, bottom = Readable(preview:GetRight()), Readable(preview:GetBottom())
+		if sourcesMode ~= "last" or not (left and regionTop and right and bottom) or not preview:IsShown() then
 			viewport:SetHeight(1)
 			slider:Hide()
 			viewport:EnableMouseWheel(false)
+			Layout()
 			return
 		end
 		local column = ns.SourcesView.ColumnOf(preview)
 		if column and column:IsShown() then
-			right = math.max(right, column:GetRight() or right)
-			bottom = math.min(bottom, column:GetBottom() or bottom)
+			right = math.max(right, Readable(column:GetRight()) or right)
+			bottom = math.min(bottom, Readable(column:GetBottom()) or bottom)
 		end
-		local width, height = right - left + 4, top - bottom + 4
+		local width, height = right - left + 4, regionTop - bottom + 4
 		stage:SetSize(width, height)
-		viewport:SetHeight(height)
-		range = math.max(0, width - (viewport:GetWidth() or width))
+		viewport:SetHeight(math.max(height, math.floor((Remaining() or 0) / 2)))
+		range = math.max(0, width - (Readable(viewport:GetWidth()) or width))
 		if range > 0 then
-			slider:Init(math.min(viewport:GetHorizontalScroll(), range), 0, range, math.max(1, math.floor(range / 20)))
+			local scrolled = Readable(viewport:GetHorizontalScroll()) or 0
+			slider:Init(math.min(scrolled, range), 0, range, math.max(1, math.floor(range / 20)))
 			slider:Show()
 		else
 			viewport:SetHorizontalScroll(0)
 			slider:Hide()
 		end
 		viewport:EnableMouseWheel(range > 0)
-		page:FitHeight()
+		Layout()
 	end
 	local FitViewSoon = ns.Throttled(FitView)
 	preview:HookScript("OnSizeChanged", FitViewSoon)
 
 	function page:Draw()
 		if not self:IsVisible() then return end
-		DrawList(list, sourcesMode == "last" and LastRows() or AddonRows())
-		DrawCurrentTooltip(preview, self, anchor)
+		local last = sourcesMode == "last"
+		list.specs = last and LastRows() or AddonRows()
+		-- All addons has no current tooltip.
+		viewport:SetShown(last)
+		if last then
+			DrawCurrentTooltip(preview, self, anchor)
+		else
+			preview:Hide()
+			ns.SourcesView.Hide(preview)
+			slider:Hide()
+		end
+		Layout()
 		FitViewSoon()
 	end
 	-- The current tooltip changes as the player hovers things: drawn again while the page is open.
 	ns.Listen("TOOLTIP_SEEN", function()
 		if page:IsVisible() then page:Refresh() end
 	end)
+	page.list = list
 
 	function page:OnDefault() DefaultsOf({ "showSources" }) end
 	return page
 end
-
--- Profiles -------------------------------------------------------------------------------------------------------------
--- A canvas page like the others, with CT's own dropdowns and buttons. Not a list page of the game's Settings controls:
--- the panel's search reads every list page's settings, and reading CT's taints the rest of the search, so the game
--- refused the Social page's protected Discord call while it drew the results (ADDON_ACTION_FORBIDDEN IsUserOAuthed,
--- 8 Nov). Canvas pages aren't searched.
-
-local profilesPage
-
-local function RefreshProfiles()
-	if profilesPage then profilesPage:Refresh() end
-end
-
-local function Trim(text)
-	return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
-end
-
-local function ProfileNames(skipCurrent)
-	local names = {}
-	if not ns.db then return names end
-	local current = ns.db:GetCurrentProfile()
-	for _, name in ipairs((ns.db:GetProfiles({}))) do
-		if not (skipCurrent and name == current) then names[#names + 1] = name end
-	end
-	table.sort(names)
-	return names
-end
-
-local function ProfileExists(name)
-	for _, existing in ipairs(ProfileNames()) do
-		if existing == name then return true end
-	end
-	return false
-end
-
--- The profile names for a dropdown, as { value, text }; `extra` first when it isn't a profile yet.
-local function ProfileChoices(skipCurrent, extra)
-	return function()
-		local list, seen = {}, {}
-		if extra then
-			list[1] = { value = extra, text = extra }
-			seen[extra] = true
-		end
-		for _, name in ipairs(ProfileNames(skipCurrent)) do
-			if not seen[name] then list[#list + 1] = { value = name, text = name } end
-		end
-		return list
-	end
-end
-
-local PROFILE_DROPDOWN_WIDTH = 200
-local BUTTON_WIDTH = 160
-
-local function ProfileButton(page, text, x, y, click)
-	local button = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-	button:SetText(text)
-	button:SetSize(BUTTON_WIDTH, 22)
-	button:SetPoint("TOPLEFT", x, y)
-	button:SetScript("OnClick", click)
-	return button
-end
-
--- A dropdown that picks a profile to act on (copy from, delete): it always reads as a prompt, asks to confirm, and is
--- greyed while there's no other profile.
-local function PickerDropdown(page, labelText, popup, y)
-	local dropdown = Dropdown(page, labelText, PROFILE_DROPDOWN_WIDTH, ProfileChoices(true),
-		function() return nil end,
-		function(value)
-			if RefuseInCombat() then return end
-			StaticPopup_Show(POPUP_PREFIX .. popup, value, ns.db and ns.db:GetCurrentProfile() or "", value)
-		end, LEFT, y)
-	dropdown:SetDefaultText(L.PROFILE_CHOOSE)
-	table.insert(page.refreshers, function() dropdown:SetEnabled(#ProfileNames(true) > 0) end)
-	return dropdown
-end
-
-local function BuildProfiles()
-	local page = NewPage(L.PAGE_PROFILES)
-	local y = TOP
-	page.Active = Dropdown(page, L.PROFILE_ACTIVE, PROFILE_DROPDOWN_WIDTH, ProfileChoices(false),
-		function() return ns.db and ns.db:GetCurrentProfile() end,
-		function(value)
-			if ns.db and not RefuseInCombat() then ns.db:SetProfile(value) end
-			RefreshProfiles()
-		end, LEFT, y)
-	y = y - ROW - 8
-	-- The default for new characters may name a profile that doesn't exist yet (AceDB makes it on first use).
-	page.Default = Dropdown(page, L.PROFILE_DEFAULT, PROFILE_DROPDOWN_WIDTH,
-		function() return ProfileChoices(false, ns.global and ns.global.defaultProfile or "Default")() end,
-		function() return ns.global and ns.global.defaultProfile or "Default" end,
-		function(value)
-			if ns.global then ns.global.defaultProfile = value end
-			RefreshProfiles()
-		end, LEFT, y)
-	y = y - ROW - 16
-	page.New = ProfileButton(page, L.PROFILE_NEW, LEFT + LABEL_WIDTH, y, function()
-		if not RefuseInCombat() then StaticPopup_Show(POPUP_PREFIX .. "PROFILE_NEW") end
-	end)
-	y = y - ROW - 8
-	page.Copy = PickerDropdown(page, L.PROFILE_COPY, "PROFILE_COPY", y)
-	y = y - ROW - 8
-	page.Delete = PickerDropdown(page, L.PROFILE_DELETE, "PROFILE_DELETE", y)
-	y = y - ROW - 16
-	page.Reset = ProfileButton(page, L.PROFILE_RESET, LEFT + LABEL_WIDTH, y, function()
-		if not RefuseInCombat() and ns.db then
-			StaticPopup_Show(POPUP_PREFIX .. "PROFILE_RESET", ns.db:GetCurrentProfile())
-		end
-	end)
-	-- Defaults on this page would be Reset Profile, which asks first: the button is there for that.
-	function page:OnDefault() end
-	profilesPage = page
-	return page
-end
-
-local function Popup(key, info)
-	info.timeout = 0
-	info.whileDead = true
-	info.hideOnEscape = true
-	StaticPopupDialogs[POPUP_PREFIX .. key] = info
-end
-
-Popup("PROFILE_NEW", {
-	text = L.PROFILE_NEW_TEXT,
-	button1 = ACCEPT, button2 = CANCEL,
-	hasEditBox = true, maxLetters = NAME_LETTERS,
-	OnShow = function(dialog) dialog:GetButton1():Disable() end,
-	EditBoxOnTextChanged = function(editBox) StaticPopup_StandardNonEmptyTextHandler(editBox) end,
-	EditBoxOnEnterPressed = function(editBox)
-		local button = editBox:GetParent():GetButton1()
-		if button:IsEnabled() then button:Click() end
-	end,
-	OnAccept = function(dialog)
-		if RefuseInCombat() or not ns.db then return end
-		local name = Trim(dialog:GetEditBox():GetText())
-		if name == "" then return true end
-		if ProfileExists(name) then
-			ns.Print(L.PROFILE_EXISTS:format(name))
-			return true
-		end
-		ns.db:SetProfile(name)
-		RefreshProfiles()
-	end,
-})
-
-Popup("PROFILE_COPY", {
-	text = L.PROFILE_COPY_CONFIRM, -- %s the profile copied from, %s the current one
-	button1 = YES, button2 = NO, showAlert = true,
-	OnAccept = function(_, source)
-		if RefuseInCombat() or not ns.db or not ProfileExists(source) then return end
-		if source ~= ns.db:GetCurrentProfile() then ns.db:CopyProfile(source) end
-	end,
-})
-
-Popup("PROFILE_DELETE", {
-	text = L.PROFILE_DELETE_CONFIRM, -- %s the profile
-	button1 = YES, button2 = NO, showAlert = true,
-	OnAccept = function(_, name)
-		if RefuseInCombat() or not ns.db or not ProfileExists(name) then return end
-		if name == ns.db:GetCurrentProfile() then return end
-		ns.db:DeleteProfile(name)
-		if ns.global and ns.global.defaultProfile == name then ns.global.defaultProfile = "Default" end
-		RefreshProfiles()
-	end,
-})
-
-Popup("PROFILE_RESET", {
-	text = L.PROFILE_RESET_CONFIRM, -- %s the profile
-	button1 = YES, button2 = NO, showAlert = true,
-	OnAccept = function()
-		if not RefuseInCombat() and ns.db then ns.db:ResetProfile() end
-	end,
-})
 
 -- Opening and keeping current -------------------------------------------------------------------------------------------
 
@@ -933,7 +755,7 @@ function Options.Open(which)
 end
 
 local function RefreshShown()
-	for _, page in ipairs(pages) do
+	for _, page in ipairs(Kit.pages) do
 		if page:IsVisible() then page:Refresh() end
 	end
 end
@@ -941,18 +763,17 @@ local RefreshShownSoon = ns.Throttled(RefreshShown)
 
 ns.Listen("DB_READY", function()
 	if categories.cleanup then return end
-	local cleanup = BuildCleanup()
-	local root = Settings.RegisterCanvasLayoutCategory(cleanup.canvas, TITLE)
+	-- Registered now, built when first shown (Kit.Canvas): the previews and their hooks aren't made during the login
+	-- loading screen, or at all for players who never open the options.
+	local root = Settings.RegisterCanvasLayoutCategory(Kit.Canvas(BuildCleanup), TITLE)
 	categories.cleanup = root
-	categories.look = Settings.RegisterCanvasLayoutSubcategory(root, BuildLook().canvas, L.PAGE_LOOK)
-	categories.sources = Settings.RegisterCanvasLayoutSubcategory(root, BuildSources().canvas, L.PAGE_SOURCES)
-	categories.profiles = Settings.RegisterCanvasLayoutSubcategory(root, BuildProfiles().canvas, L.PAGE_PROFILES)
+	categories.look = Settings.RegisterCanvasLayoutSubcategory(root, Kit.Canvas(BuildLook), L.PAGE_LOOK)
+	categories.sources = Settings.RegisterCanvasLayoutSubcategory(root, Kit.Canvas(BuildSources), L.PAGE_SOURCES)
+	categories.profiles = Settings.RegisterCanvasLayoutSubcategory(root, Kit.Canvas(Options.BuildProfiles),
+		L.PAGE_PROFILES)
 	Settings.RegisterAddOnCategory(root)
 end)
 
-ns.Listen("SETTINGS_CHANGED", function(what)
-	if what == nil then RefreshProfiles() end
-	RefreshShownSoon()
-end)
+ns.Listen("SETTINGS_CHANGED", RefreshShownSoon)
 ns.Listen("RULES_CHANGED", RefreshShownSoon)
 ns.Listen("SOURCE_SEEN", RefreshShownSoon)
