@@ -2,7 +2,7 @@
 ## Title: Clean Tooltips
 ## Author: LaryIsland
 ## Version: @project-version@
-## Notes: Shorter, tidier tooltips, and shows which addon added each line
+## Notes: Shorter, cleaner tooltips
 ## Category: User Interface
 ## IconTexture: Interface\Icons\INV_10_Inscription2_RepContracts_80_Scroll_Uprez
 ## SavedVariables: CleanTooltipsDB

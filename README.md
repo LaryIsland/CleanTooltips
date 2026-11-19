@@ -1,6 +1,6 @@
 # Clean Tooltips
 
-**Shorter, cleaner tooltips.**
+**Shorter, cleaner tooltips**
 
 ![The game's tooltip beside the same tooltip with Clean Tooltips](https://raw.githubusercontent.com/LaryIsland/CleanTooltips/master/Images/before-after.png)
 
