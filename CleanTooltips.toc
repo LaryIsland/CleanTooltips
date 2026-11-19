@@ -4,7 +4,7 @@
 ## Version: @project-version@
 ## Notes: Shorter, tidier tooltips, and shows which addon added each line
 ## Category: User Interface
-## IconTexture: Interface\Icons\INV_Misc_Note_02
+## IconTexture: Interface\Icons\INV_10_Inscription2_RepContracts_80_Scroll_Uprez
 ## SavedVariables: CleanTooltipsDB
 ## OptionalDeps: LibSharedMedia-3.0
 ## X-Curse-Project-ID: 1814714
