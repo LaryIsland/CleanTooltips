@@ -34,11 +34,11 @@ local CLEANUP_FIELDS = ns.CLEANUP_FIELDS -- Core.lua
 local function BuildCleanup(canvas)
 	local page = NewPage(TITLE, canvas)
 	-- Two columns, in the order the first samples show them (Preview.SAMPLES). Left, the lines hidden from items: sell
-	-- price, requirements met, "Soulbound", "Unique", durability, then dps. Right, the shortened Equip and Use lines with
-	-- the options that shape them, then the unit tooltip lines.
+	-- price, requirements met, "Soulbound", "Unique", then durability. Right, dps and the shortened Equip and Use lines
+	-- with the options that shape them, then the unit tooltip lines.
 	local left, right = TOP, TOP
-	local function Left(field, text, tip)
-		local check = FieldCheck(page, field, text, tip, LEFT, left)
+	local function Left(field, text, tip, indent)
+		local check = FieldCheck(page, field, text, tip, LEFT + (indent and INDENT or 0), left)
 		left = left - ROW
 		return check
 	end
@@ -47,13 +47,15 @@ local function BuildCleanup(canvas)
 		right = right - ROW
 		return check
 	end
-	Left("hideSellPrice", L.OPT_SELL_PRICE, L.OPT_SELL_PRICE_TIP)
+	Left("hideSellPrice", L.OPT_SELL_PRICE, nil)
+	local atVendor = Left("sellPriceAtVendor", L.OPT_SELL_PRICE_AT_VENDOR, nil, true)
+	table.insert(page.refreshers, function() atVendor:SetActive(ns.profile.hideSellPrice == true) end)
 	Left("hideMetLevel", L.OPT_LEVEL, nil)
 	Left("hideMetRequirements", L.OPT_MET_REQUIREMENTS, nil)
 	Left("hideSoulbound", L.OPT_SOULBOUND, nil)
 	Left("hideUnique", L.OPT_UNIQUE, nil)
 	Left("hideDurability", L.OPT_DURABILITY, nil)
-	Left("shortenDps", L.OPT_SHORTEN_DPS, nil)
+	Right("shortenDps", L.OPT_SHORTEN_DPS, nil)
 	Right("shortenEquip", L.OPT_SHORTEN_EQUIP, nil)
 	local noPrefix = Right("dropEquipPrefix", L.OPT_DROP_EQUIP_PREFIX, nil, true)
 	table.insert(page.refreshers, function() noPrefix:SetActive(ns.profile.shortenEquip == true) end)

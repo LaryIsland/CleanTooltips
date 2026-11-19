@@ -136,7 +136,7 @@ L["SHORT_STAT"] = "+%s %s"
 
 -- Options page: Clean-up (Options.lua)
 L["OPT_SELL_PRICE"] = "Hide sell price"
-L["OPT_SELL_PRICE_TIP"] = "Vendors still show it."
+L["OPT_SELL_PRICE_AT_VENDOR"] = "Show it at vendors"
 L["OPT_DURABILITY"] = "Hide durability on undamaged items"
 L["OPT_LEVEL"] = "Hide level requirements you meet"
 L["OPT_MET_REQUIREMENTS"] = "Hide other requirements you meet"

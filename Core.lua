@@ -216,13 +216,14 @@ end)
 -- Everything is off by default: with a new profile, tooltips are exactly the game's until the player changes something.
 -- The clean-up options, in the order the Clean-up page shows them: one list for the page's Defaults button and for
 -- rebuilding shown tooltips when one changes (Blizzard.lua).
-ns.CLEANUP_FIELDS = { "hideSellPrice", "hideMetLevel", "hideMetRequirements", "hideSoulbound", "hideUnique",
-	"hideDurability", "shortenDps", "shortenEquip", "dropEquipPrefix", "shortenUse", "hideSecondCooldown", "hideFaction",
-	"hidePvP" }
+ns.CLEANUP_FIELDS = { "hideSellPrice", "sellPriceAtVendor", "hideMetLevel", "hideMetRequirements", "hideSoulbound",
+	"hideUnique", "hideDurability", "shortenDps", "shortenEquip", "dropEquipPrefix", "shortenUse", "hideSecondCooldown",
+	"hideFaction", "hidePvP" }
 
 ns.PROFILE_DEFAULTS = {
 	-- Clean-up
 	hideSellPrice = false,
+	sellPriceAtVendor = false,
 	hideDurability = false,
 	hideMetLevel = false,
 	shortenUse = false,

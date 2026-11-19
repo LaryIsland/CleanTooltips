@@ -27,8 +27,14 @@ local function IsItemTooltip(tooltip)
 end
 
 -- Sell price: the line has no text; Blizzard's own post-call writes the price, and is skipped with the line.
+local atVendor = false
+ns.On("MERCHANT_SHOW", function() atVendor = true end)
+ns.On("MERCHANT_CLOSED", function() atVendor = false end)
+
 TooltipDataProcessor.AddLinePreCall(LineType.SellPrice, function(tooltip)
-	if ns.Active(tooltip) and ns.profile.hideSellPrice then return true end
+	if not (ns.Active(tooltip) and ns.profile.hideSellPrice) then return end
+	if atVendor and ns.profile.sellPriceAtVendor then return end
+	return true
 end)
 
 -- Full durability and a level requirement already met, matched on the game's own strings so they follow
