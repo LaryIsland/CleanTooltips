@@ -4,6 +4,8 @@ local _, ns = ...
 -- texture, the font and the background. Only post-hooks, TooltipDataProcessor callbacks and colour/texture calls on
 -- the tooltip's own pieces; nothing Blizzard's is replaced.
 --   ns.Style.Watch(tooltip)   styles a tooltip the hooks below wouldn't otherwise reach (CT's previews)
+--   ns.Style.WatchBackground(tooltip)   only the background, for a raw preview (the Clean-up page's Game tooltip)
+--   ns.Style.GameBackground(), SetFill(tooltip, r, g, b, a | nil), IsFilled(tooltip)   the background as drawn
 --   ns.Style.SetBorder(tooltip, color), SetBorderGrey(nineSlice, grey), IsBorderGrey(nineSlice)
 --   ns.Style.WatchHealthBar(bar), MediaNames(mediaType)
 
@@ -19,6 +21,7 @@ local unitOf = setmetatable({}, { __mode = "k" })  -- [tooltip] = the unit on it
 local border = setmetatable({}, { __mode = "k" })  -- [tooltip] = the border colour CT wants, while it wants one
 local tinted = setmetatable({}, { __mode = "k" })  -- [tooltip] = true while CT has changed its border
 local shaded = setmetatable({}, { __mode = "k" })  -- [tooltip] = true while CT has changed its background
+local backgroundOnly = setmetatable({}, { __mode = "k" }) -- [tooltip] = true: a raw preview that takes the background
 local seen = setmetatable({}, { __mode = "k" })    -- every tooltip styled so far, for applying a changed option
 local defaultBorder = setmetatable({}, { __mode = "k" }) -- [NineSlice] = { r, g, b, a } before CT changed it
 local applying = false                               -- CT's own colour calls, which the colour hooks let through
@@ -122,17 +125,66 @@ local function ApplyBorder(tooltip)
 	end
 end
 
+-- Forever's tooltip background art (Tooltip-NineSlice-Center, 1.60.1) is one flat grey, 141/142/141 at alpha 195 of
+-- 255, and the centre colour multiplies it: the game's background is TOOLTIP_DEFAULT_BACKGROUND_COLOR times that grey,
+-- 76% opaque, and a colour set the same way could never be brighter than the grey or more opaque than 76% (user,
+-- 19 Nov). So CT draws a chosen colour as its own flat fill exactly over the background piece, which it makes
+-- invisible (region alpha 0, leaving its colour alone), and the colour shows exactly as picked, fully opaque at 100%.
+-- The centre colour is still set to the chosen one, so GetCenterColor reports it (the Sources page's copy, the
+-- previews' backing).
+local GAME_BACKGROUND_ART = { 141 / 255, 142 / 255, 141 / 255, 195 / 255 }
+
+-- The game's own background as it shows: colour and opacity, for the swatch's starting point.
+function Style.GameBackground()
+	local r, g, b = TOOLTIP_DEFAULT_BACKGROUND_COLOR:GetRGB()
+	local art = GAME_BACKGROUND_ART
+	return r * art[1], g * art[2], b * art[3], art[4]
+end
+
+-- CT's flat fill over a tooltip's background piece in this colour (r, g, b, a), or the game's piece back (nil).
+function Style.SetFill(tooltip, r, g, b, a)
+	local nineSlice = tooltip.NineSlice
+	local center = nineSlice and rawget(nineSlice, "Center")
+	if not center then return end
+	local fill = rawget(tooltip, "ctFill")
+	if r == nil then
+		if fill then fill:Hide() end
+		center:SetAlpha(1)
+		return
+	end
+	if not fill then
+		-- The piece's own layer, and always above the previews' backing (BACKGROUND -8, Preview.lua).
+		local layer, subLevel = center:GetDrawLayer()
+		fill = nineSlice:CreateTexture(nil, layer or "BACKGROUND", nil, math.max(subLevel or 0, -7))
+		tooltip.ctFill = fill
+	end
+	fill:ClearAllPoints()
+	fill:SetAllPoints(center)
+	fill:SetColorTexture(r, g, b, a or 1)
+	fill:SetShown(center:IsShown())
+	center:SetAlpha(0)
+end
+
+function Style.IsFilled(tooltip)
+	local fill = rawget(tooltip, "ctFill")
+	return fill ~= nil and fill:IsShown() == true
+end
+
 local function ApplyBackground(tooltip)
 	local nineSlice = tooltip.NineSlice
-	if not nineSlice or (tooltip.IsForbidden and tooltip:IsForbidden()) or ns.raw[tooltip] then return end
+	if not nineSlice or (tooltip.IsForbidden and tooltip:IsForbidden()) then return end
+	if ns.raw[tooltip] and not backgroundOnly[tooltip] then return end
 	local color = ns.profile and ns.profile.background
 	applying = true
 	if type(color) == "table" then
-		nineSlice:SetCenterColor(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
+		local r, g, b, a = color.r or 0, color.g or 0, color.b or 0, color.a or 1
+		nineSlice:SetCenterColor(r, g, b, a)
+		Style.SetFill(tooltip, r, g, b, a)
 		shaded[tooltip] = true
 	elseif shaded[tooltip] then
 		local r, g, b = TOOLTIP_DEFAULT_BACKGROUND_COLOR:GetRGB()
 		nineSlice:SetCenterColor(r, g, b, 1)
+		Style.SetFill(tooltip, nil)
 		shaded[tooltip] = nil
 	end
 	applying = false
@@ -159,6 +211,13 @@ function Style.Watch(tooltip)
 	tooltip:HookScript("OnHide", Forget)
 	tooltip:HookScript("OnTooltipCleared", Forget)
 	ApplyBackground(tooltip)
+end
+
+-- The background colour on a raw preview, so the Clean-up page's two tooltips differ only in their lines. Its border
+-- stays the game's: CT's data callbacks skip raw tooltips, so no border colour is ever set for it.
+function Style.WatchBackground(tooltip)
+	backgroundOnly[tooltip] = true
+	Style.Watch(tooltip)
 end
 
 -- A border colour for a tooltip the data pipeline doesn't build (the Look page's sample names); nil for the game's.

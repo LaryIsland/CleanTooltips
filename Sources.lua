@@ -12,7 +12,7 @@ local addonName, ns = ...
 --   hidden[i]    true when CT removed line i (Remove.lua)
 --   left[i], right[i]           the line's text when it was added (nil when secret)
 --   lr/lg/lb[i], rr/rg/rb[i]    its colours when it was added
---   finalLeft/finalRight[i], flr/flg/flb[i], frr/frg/frb[i], finalShown[i], border, center
+--   finalLeft/finalRight[i], flr/flg/flb[i], frr/frg/frb[i], finalShown[i], border, center, centerFilled
 --                as the player saw it when the tooltip was last shown (CT's changes and other addons' included):
 --                kept for the current tooltip, for the Sources page's preview
 --   addons       true when any line came from an addon
@@ -477,7 +477,7 @@ local function ResetRecord(record)
 	record.subject = nil    -- what it's about (SubjectOf), false when unreadable
 	record.typeName = nil   -- its data's type ("Item", "Unit"), when built from data
 	record.attribute = gate.all -- whether its lines are attributed (Wanted; set again by type when built from data)
-	record.border, record.center, record.borderGrey = nil, nil, nil
+	record.border, record.center, record.borderGrey, record.centerFilled = nil, nil, nil, nil
 	record.minWidth = nil -- the tooltip's minimum width when last shown
 	for _, key in ipairs(RECORD_TABLES) do
 		local t = record[key]
@@ -831,6 +831,7 @@ local function Snapshot(tooltip)
 			record.centerKept = Fill(record.centerKept, r, g, b, a)
 			record.center = record.centerKept
 		end
+		record.centerFilled = ns.Style.IsFilled(tooltip) -- a chosen background is CT's own fill (Style.lua)
 	end
 	NotifySeen()
 end

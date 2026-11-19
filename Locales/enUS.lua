@@ -166,10 +166,10 @@ L["OPT_BORDER_QUALITY"] = "Items by quality"
 L["OPT_HEALTH_BAR"] = "Health bar texture"
 L["OPT_FONT"] = "Font"
 -- The first choice in the texture and font lists.
-L["OPT_GAME_DEFAULT"] = "Game's own"
+L["OPT_GAME_DEFAULT"] = "Default"
 L["OPT_BACKGROUND"] = "Background"
 L["OPT_BACKGROUND_TIP"] = "Colour and transparency."
-L["OPT_BACKGROUND_RESET"] = "Game's own"
+L["OPT_BACKGROUND_RESET"] = "Reset"
 -- The Look page's sample name lines, for what can't be previewed with a real unit.
 L["SAMPLE_HOSTILE_PLAYER"] = "Hostile player"
 L["SAMPLE_HOSTILE_NPC"] = "Hostile NPC"

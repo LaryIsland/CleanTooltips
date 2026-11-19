@@ -3,7 +3,8 @@ local _, ns = ...
 -- Preview tooltips for the options pages: CT's own tooltips made from GameTooltipTemplate, so
 -- the whole data pipeline (Blizzard's rules, CT's callbacks, other addons' callbacks) runs on them exactly as on
 -- GameTooltip. A "raw" preview is skipped by every CT callback, to show the game's own tooltip beside CT's.
---   ns.Preview.Create(parent, raw)                     a new preview tooltip, drawn at the parent's level
+--   ns.Preview.Create(parent, raw, background)         a new preview tooltip, drawn at the parent's level; a raw one
+--                                                      with `background` still takes the chosen background colour
 --   ns.Preview.Place(tooltip, owner, point, relativeTo, relativePoint, x, y)
 --   ns.Preview.SAMPLES                                 sample items: { id, durability = { current, max }, setPieces,
 --                                                      own, requirementsMet } (SampleData)
@@ -183,11 +184,12 @@ end
 local count = 0
 local previewTooltips = setmetatable({}, { __mode = "k" }) -- every preview, for the backing (below)
 
-function Preview.Create(parent, raw)
+function Preview.Create(parent, raw, background)
 	count = count + 1
 	local tooltip = CreateFrame("GameTooltip", "CleanTooltipsPreview" .. count, parent, "GameTooltipTemplate")
 	if raw then
 		ns.raw[tooltip] = true
+		if background then ns.Style.WatchBackground(tooltip) end
 	else
 		ns.Style.Watch(tooltip)
 		ns.Style.WatchHealthBar(tooltip.StatusBar)
@@ -216,9 +218,18 @@ end
 -- mid-toned Forever brown: the hue of the game's own inset frame art (common-insideframe), as bright as an average
 -- outdoor scene (mean brightness 0.31). It sits on the tooltip's NineSlice, the
 -- same size as its Center piece and drawn just beneath it, so it covers exactly the area the game's own background
--- does and the border's corners draw over it as they do over the background. A chosen background transparency still
--- shows.
+-- does and the border's corners draw over it as they do over the background. Its opacity is the background colour's
+-- (user, 19 Nov): a background at 0% shows no backing either, so a see-through background looks see-through.
 local BACKING_COLOR = { 0.40, 0.30, 0.19 } -- Forever's inset-frame brown, luminance 0.31
+
+-- The backing's opacity: the background colour's alpha as the tooltip has it now (after every hook has run).
+local function BackingAlpha(tooltip)
+	local backing = rawget(tooltip, "ctBacking")
+	if not backing then return end
+	local _, _, _, alpha = tooltip.NineSlice:GetCenterColor()
+	alpha = ns.Readable(alpha)
+	backing:SetAlpha(type(alpha) == "number" and math.max(0, math.min(1, alpha)) or 1)
+end
 
 local function Backing(tooltip)
 	local nineSlice = tooltip.NineSlice
@@ -229,10 +240,14 @@ local function Backing(tooltip)
 		backing = nineSlice:CreateTexture(nil, "BACKGROUND", nil, -8)
 		backing:SetColorTexture(BACKING_COLOR[1], BACKING_COLOR[2], BACKING_COLOR[3], 1)
 		tooltip.ctBacking = backing
+		-- Every background change: the game's reset (alpha 1), CT's colour, the Sources page's copy of a tooltip's.
+		-- Read back rather than taken from the call, as CT's own hook sets its colour inside the game's call.
+		hooksecurefunc(nineSlice, "SetCenterColor", function() BackingAlpha(tooltip) end)
 	end
 	backing:ClearAllPoints()
 	backing:SetAllPoints(center)
 	backing:SetShown(center:IsShown())
+	BackingAlpha(tooltip)
 end
 Preview.Backing = Backing
 

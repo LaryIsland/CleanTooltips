@@ -83,7 +83,7 @@ local function BuildCleanup(canvas)
 	local gameLabel = Text(page, "GameFontNormal", L.PREVIEW_GAME)
 	gameLabel:SetPoint("TOPLEFT", LEFT, y)
 	local cleanLabel = Text(page, "GameFontNormal", TITLE)
-	local raw = ns.Preview.Create(page, true)
+	local raw = ns.Preview.Create(page, true, true) -- the game's lines, with the chosen background like CT's
 	local clean = ns.Preview.Create(page)
 
 	-- The first time the page is drawn, every sample's item data is asked for, and the page is drawn again as each
@@ -144,8 +144,8 @@ end
 local function BackgroundColor()
 	local color = ns.profile.background
 	if type(color) == "table" then return color.r or 0, color.g or 0, color.b or 0, color.a or 1 end
-	local r, g, b = TOOLTIP_DEFAULT_BACKGROUND_COLOR:GetRGB()
-	return r, g, b, 1
+	-- The game's background exactly as it shows (its colour times its art, 76% opaque), so picking it changes nothing.
+	return ns.Style.GameBackground()
 end
 
 local function SetBackground(color)
@@ -574,6 +574,12 @@ local function DrawCurrentTooltip(tooltip, page, anchor)
 		local default = TOOLTIP_DEFAULT_BACKGROUND_COLOR
 		nineSlice:SetCenterColor(center and center[1] or default.r, center and center[2] or default.g,
 			center and center[3] or default.b, center and center[4] or 1)
+		-- CT's flat fill where the real one had it (a chosen background, Style.lua), else the game's art.
+		if center and record.centerFilled then
+			ns.Style.SetFill(tooltip, center[1], center[2], center[3], center[4])
+		else
+			ns.Style.SetFill(tooltip, nil)
+		end
 	end
 	ns.SourcesView.Draw(tooltip, view, false)
 end

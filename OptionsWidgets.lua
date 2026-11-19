@@ -255,12 +255,12 @@ local function FieldCheck(page, field, text, tip, x, y)
 	return check
 end
 
--- A labelled dropdown. choices() gives { { value, text }, ... }.
-local function Dropdown(page, labelText, width, choices, get, set, x, y)
+-- A labelled dropdown. choices() gives { { value, text }, ... }; labelWidth, if given, replaces LABEL_WIDTH.
+local function Dropdown(page, labelText, width, choices, get, set, x, y, labelWidth)
 	local label = Text(page, "GameFontHighlight", labelText)
 	label:SetPoint("TOPLEFT", x, y - 7)
 	local dropdown = CreateFrame("DropdownButton", nil, page, "WowStyle1DropdownTemplate")
-	dropdown:SetPoint("TOPLEFT", x + LABEL_WIDTH, y)
+	dropdown:SetPoint("TOPLEFT", x + (labelWidth or LABEL_WIDTH), y)
 	dropdown:SetWidth(width)
 	dropdown:SetupMenu(function(_, root)
 		root:SetScrollMode(MENU_HEIGHT)

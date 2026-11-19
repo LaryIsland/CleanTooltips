@@ -63,6 +63,21 @@ end
 
 local PROFILE_DROPDOWN_WIDTH = 200
 local BUTTON_WIDTH = 160
+local LABEL_GAP = 16 -- between the longest label and the controls
+
+-- Where the page's dropdowns and buttons start: past its longest label (user, 19 Nov: "Default for new characters" ran
+-- under its dropdown at the other pages' LABEL_WIDTH), and never nearer than that. Labels are never secret.
+local function LabelWidth(page)
+	local measure = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	measure:Hide()
+	local widest = 0
+	for _, key in ipairs({ "PROFILE_ACTIVE", "PROFILE_DEFAULT", "PROFILE_COPY", "PROFILE_DELETE" }) do
+		measure:SetText(L[key])
+		widest = math.max(widest, ns.Readable(measure:GetUnboundedStringWidth()) or 0)
+	end
+	measure:SetText("")
+	return math.max(LABEL_WIDTH, math.ceil(widest) + LABEL_GAP)
+end
 
 local function ProfileButton(page, text, x, y, click)
 	local button = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
@@ -75,13 +90,13 @@ end
 
 -- A dropdown that picks a profile to act on (copy from, delete): it always reads as a prompt, asks to confirm, and is
 -- greyed while there's no other profile.
-local function PickerDropdown(page, labelText, popup, y)
+local function PickerDropdown(page, labelText, popup, y, labelWidth)
 	local dropdown = Dropdown(page, labelText, PROFILE_DROPDOWN_WIDTH, ProfileChoices(true),
 		function() return nil end,
 		function(value)
 			if RefuseInCombat() then return end
 			StaticPopup_Show(POPUP_PREFIX .. popup, value, ns.db and ns.db:GetCurrentProfile() or "", value)
-		end, LEFT, y)
+		end, LEFT, y, labelWidth)
 	dropdown:SetDefaultText(L.PROFILE_CHOOSE)
 	table.insert(page.refreshers, function() dropdown:SetEnabled(#ProfileNames(true) > 0) end)
 	return dropdown
@@ -90,12 +105,13 @@ end
 function ns.Options.BuildProfiles(canvas)
 	local page = NewPage(L.PAGE_PROFILES, canvas)
 	local y = TOP
+	local labelWidth = LabelWidth(page)
 	page.Active = Dropdown(page, L.PROFILE_ACTIVE, PROFILE_DROPDOWN_WIDTH, ProfileChoices(false),
 		function() return ns.db and ns.db:GetCurrentProfile() end,
 		function(value)
 			if ns.db and not RefuseInCombat() then ns.db:SetProfile(value) end
 			RefreshProfiles()
-		end, LEFT, y)
+		end, LEFT, y, labelWidth)
 	y = y - ROW - 8
 	-- The default for new characters may name a profile that doesn't exist yet (AceDB makes it on first use).
 	page.Default = Dropdown(page, L.PROFILE_DEFAULT, PROFILE_DROPDOWN_WIDTH,
@@ -104,17 +120,17 @@ function ns.Options.BuildProfiles(canvas)
 		function(value)
 			if ns.global then ns.global.defaultProfile = value end
 			RefreshProfiles()
-		end, LEFT, y)
+		end, LEFT, y, labelWidth)
 	y = y - ROW - 16
-	page.New = ProfileButton(page, L.PROFILE_NEW, LEFT + LABEL_WIDTH, y, function()
+	page.New = ProfileButton(page, L.PROFILE_NEW, LEFT + labelWidth, y, function()
 		if not RefuseInCombat() then StaticPopup_Show(POPUP_PREFIX .. "PROFILE_NEW") end
 	end)
 	y = y - ROW - 8
-	page.Copy = PickerDropdown(page, L.PROFILE_COPY, "PROFILE_COPY", y)
+	page.Copy = PickerDropdown(page, L.PROFILE_COPY, "PROFILE_COPY", y, labelWidth)
 	y = y - ROW - 8
-	page.Delete = PickerDropdown(page, L.PROFILE_DELETE, "PROFILE_DELETE", y)
+	page.Delete = PickerDropdown(page, L.PROFILE_DELETE, "PROFILE_DELETE", y, labelWidth)
 	y = y - ROW - 16
-	page.Reset = ProfileButton(page, L.PROFILE_RESET, LEFT + LABEL_WIDTH, y, function()
+	page.Reset = ProfileButton(page, L.PROFILE_RESET, LEFT + labelWidth, y, function()
 		if not RefuseInCombat() and ns.db then
 			StaticPopup_Show(POPUP_PREFIX .. "PROFILE_RESET", ns.db:GetCurrentProfile())
 		end
